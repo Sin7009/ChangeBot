@@ -8,6 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from src.config import settings
 from src.database.engine import init_db, close_db
 from src.bot.handlers import main_router
+from src.bot.inline import inline_router
 from src.bot.middlewares import DbSessionMiddleware
 
 async def main():
@@ -27,6 +28,7 @@ async def main():
 
     dp.update.middleware(DbSessionMiddleware())
     dp.include_router(main_router)
+    dp.include_router(inline_router)
 
     try:
         await dp.start_polling(bot)
