@@ -1,23 +1,15 @@
-version: '3.2'
-
 services:
-
   change_bot:
+    build: .
     container_name: change_bot
+    # Если бот упадет с ошибкой, Docker сам его перезапустит
     restart: always
-    image: bomzheg/change_bot
-    volumes:
-      - type: "bind"
-        source: "./config"
-        target: "/config"
-    entrypoint: [ "python3", "-m", "app", "-p"]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - reverse-proxy
-
-
-networks:
-  reverse-proxy:
-    external:
-      name: nginx-reverse-proxy
+    # Передаем секреты внутрь контейнера
+    env_file:
+      - .env
+    # Ограничиваем ресурсы, чтобы бот не съел всю память сервера (для твоей Free Tier VM)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
