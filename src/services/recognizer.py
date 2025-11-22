@@ -15,8 +15,18 @@ class CurrencyRecognizer:
         "руб": "RUB", "рубль": "RUB", "рублей": "RUB", "р": "RUB", "ruble": "RUB", "₽": "RUB",
         "фунт": "GBP", "pound": "GBP", "£": "GBP",
         "тенге": "KZT",
-        "юань": "CNY", "cny": "CNY", "¥": "CNY"
+        "юань": "CNY", "cny": "CNY", "¥": "CNY",
+        "биток": "BTC", "битка": "BTC", "btc": "BTC", "bitcoin": "BTC",
+        "эфир": "ETH", "эфира": "ETH", "eth": "ETH", "ethereum": "ETH",
+        "ton": "TON", "тон": "TON",
+        "usdt": "USDT", "tether": "USDT"
     }
+
+    # Inverse mapping to catch cases where user types recognized code in lowercase
+    # but not in slang map (e.g. 'eur', 'usd' are not in slang map keys above except as slang)
+    # The current logic checks slang map, then ISO code.
+    # ISO check expects 3 chars. 'bitcoin' is longer.
+    # 'битка' is slang for BTC.
 
     # Multiplier mapping
     MULTIPLIER_MAP: Dict[str, float] = {
@@ -39,14 +49,18 @@ class CurrencyRecognizer:
     # Group 3: Separator (space, none)
     # Group 4: Currency/Slang
     # Fixed: Ensure multiplier isn't just the start of the next word (e.g. "5 косарей" -> 'к' shouldn't be captured as multiplier)
-    PATTERN_START = re.compile(r'(\d+(?:[.,]\d+)?)\s*([kкmм](?![a-zA-Zа-яА-Я]))?\s*([$€£¥₽]|[a-zA-Zа-яА-Я]+)')
+    # Also updated currency group to allow digits (e.g. for potential future or mixed codes) if needed, but strict alpha is safer.
+    # Actually, allow standard slang mapping.
+    # UPD: Allow unicode characters for currency to match 'битка', 'эфир' etc. \w+ should cover it in Py3 regex with unicode flag default
+    # The regex engine needs to match 'битка' (5 chars). The previous regex `[a-zA-Zа-яА-Я0-9]+` matches it.
+    PATTERN_START = re.compile(r'(\d+(?:[.,]\d+)?)\s*([kкmм](?![a-zA-Zа-яА-Я]))?\s*([$€£¥₽]|[a-zA-Zа-яА-Я0-9]+)')
 
     # Case 2: "usd 100", "$100" (Currency first)
     # Group 1: Currency/Slang
     # Group 2: Separator
     # Group 3: Amount number
     # Group 4: Multiplier
-    PATTERN_END = re.compile(r'([$€£¥₽]|[a-zA-Zа-яА-Я]+)\s*(\d+(?:[.,]\d+)?)\s*([kкmм](?![a-zA-Zа-яА-Я]))?')
+    PATTERN_END = re.compile(r'([$€£¥₽]|[a-zA-Zа-яА-Я0-9]+)\s*(\d+(?:[.,]\d+)?)\s*([kкmм](?![a-zA-Zа-яА-Я]))?')
 
     # Special slang with implied amount: "косарь", "лям" (without number before it usually means 1)
     # But usually people say "2 косаря". Let's handle "2 косаря" -> 2000 RUB.
@@ -114,11 +128,21 @@ class CurrencyRecognizer:
                 # The SLANG_MAP handles some, but maybe not all.
 
                 clean_curr = currency_raw
-                if clean_curr not in cls.SLANG_MAP:
-                     # try stripping 's' or 'es'?
-                     pass
-
+                # Try direct lookup
                 currency_code = cls.SLANG_MAP.get(clean_curr)
+
+                # If not found, try removing trailing vowels for Russian cases?
+                # e.g. "битка" -> "битк" (not in map). "биток" is in map.
+                # "эфира" -> "эфир" (in map).
+                if not currency_code:
+                    # Russian genitive case normalization (simple heuristic)
+                    # "битка" -> base "биток". Hard to infer without proper stemmer.
+                    # But maybe "битка" should be added to SLANG_MAP directly?
+                    # The prompt said: "биток", "btc", "bitcoin" -> "BTC".
+                    # Test case: "0.5 битка".
+                    # So "битка" MUST be in SLANG_MAP or handled.
+                    # Let's add common declensions to SLANG_MAP or try to strip endings.
+                    pass
                 if not currency_code:
                      # Check if it looks like an ISO code
                      if len(clean_curr) == 3 and clean_curr.isalpha():

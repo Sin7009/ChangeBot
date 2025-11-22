@@ -4,7 +4,10 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def settings_keyboard(chat_id: int, current_currencies: list[str]) -> InlineKeyboardMarkup:
     # Supported currencies to toggle
     # We can expand this list later.
-    SUPPORTED_CURRENCIES = ["USD", "EUR", "RUB", "GBP", "CNY", "KZT"]
+    SUPPORTED_CURRENCIES = [
+        "USD", "EUR", "RUB", "GBP", "CNY", "KZT",
+        "BTC", "ETH", "TON", "USDT"
+    ]
 
     builder = InlineKeyboardBuilder()
 

@@ -54,5 +54,19 @@ class TestRecognizer(unittest.TestCase):
         self.assertEqual(res[1].amount, 200.0)
         self.assertEqual(res[1].currency, "EUR")
 
+    def test_crypto_bitok(self):
+        # "0.5 битка" -> 0.5 BTC
+        res = recognize("0.5 битка")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].amount, 0.5)
+        self.assertEqual(res[0].currency, "BTC")
+
+    def test_crypto_eth(self):
+        # "10 эфира" -> 10 ETH
+        res = recognize("10 эфира")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].amount, 10.0)
+        self.assertEqual(res[0].currency, "ETH")
+
 if __name__ == '__main__':
     unittest.main()
