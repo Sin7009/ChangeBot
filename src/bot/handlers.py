@@ -189,7 +189,8 @@ async def handle_photo(message: Message, session: AsyncSession):
                 await status_msg.edit_text("Не удалось распознать текст.")
             return
 
-        prices = recognize(text)
+        # Use strict mode for photos: require currency symbols
+        prices = recognize(text, strict_mode=True)
         if not prices:
             if is_private and status_msg:
                 await status_msg.edit_text("Не нашел валют на изображении.")
