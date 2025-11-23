@@ -159,4 +159,4 @@ pytest
 ```
 
 ---
-*Разработано [Sin7009](https://github.com/Sin7009)*
+*Разработано [Константином Князевым](https://github.com/Sin7009) благодаря [идейному вдохновителю](https://github.com/bomzheg/ChangeBot) *
