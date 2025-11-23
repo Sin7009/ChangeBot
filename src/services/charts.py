@@ -1,4 +1,7 @@
 import io
+import matplotlib
+# Указываем, что у нас нет дисплея. Это обязательно для сервера.
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import yfinance as yf
