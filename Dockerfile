@@ -22,7 +22,9 @@ COPY . .
 
 # Этап запуска (Runtime)
 # Берем чистый, легкий Linux (slim) без лишнего мусора
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng libgl1-mesa-glx && rm -rf /var/lib/apt/lists/*
 
 # Копируем виртуальное окружение из этапа сборки
 COPY --from=builder /app /app

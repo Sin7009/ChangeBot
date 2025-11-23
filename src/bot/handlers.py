@@ -1,11 +1,16 @@
+import asyncio
+import io
+from typing import List, Optional
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.filters import Command, CommandStart, CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.services.recognizer import recognize
+from src.services.recognizer import recognize, Price
 from src.services.rates import rates_service
 from src.services.charts import generate_chart
+from src.services.ocr import image_to_text
 from src.database.dal import get_chat_settings, toggle_currency
 from src.bot.keyboards import settings_keyboard
 
@@ -23,6 +28,38 @@ CURRENCY_FLAGS = {
 
 def get_flag(currency: str) -> str:
     return CURRENCY_FLAGS.get(currency, "💰")
+
+async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: int) -> Optional[str]:
+    # Fetch settings
+    settings = await get_chat_settings(session, chat_id)
+    target_currencies = settings.target_currencies
+
+    if not target_currencies:
+         return None
+
+    response_lines = []
+
+    for price in prices:
+        flag = get_flag(price.currency)
+
+        line_parts = [f"{flag} {price.amount:g} {price.currency} ≈"]
+
+        conversions = []
+        for target_code in target_currencies:
+            if target_code == price.currency:
+                continue
+
+            target_flag = get_flag(target_code)
+            converted_amount = await rates_service.convert(price.amount, price.currency, target_code)
+
+            formatted_amount = f"{converted_amount:.2f}".rstrip("0").rstrip(".")
+            conversions.append(f"{target_flag} {formatted_amount} {target_code}")
+
+        if conversions:
+            line_parts.append(" | ".join(conversions))
+            response_lines.append(" ".join(line_parts))
+
+    return "\n".join(response_lines) if response_lines else None
 
 @main_router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -122,40 +159,54 @@ async def handle_text(message: Message, session: AsyncSession):
     if not prices:
         return
 
-    # Fetch settings
-    settings = await get_chat_settings(session, message.chat.id)
-    target_currencies = settings.target_currencies
+    response = await convert_prices(prices, session, message.chat.id)
+    if response:
+        await message.reply(response)
 
-    # If no target currencies selected, maybe warn or default?
-    # Logic implies "convert ONLY to chosen". If none, maybe nothing happens or user sees nothing.
-    # Let's assume user wants at least something. If list empty, maybe fallback or just show nothing.
-    # The prompt says "convert only to chosen currencies".
+@main_router.message(F.photo)
+async def handle_photo(message: Message, session: AsyncSession):
+    is_private = message.chat.type == "private"
+    status_msg = None
 
-    if not target_currencies:
-         # Optional: await message.reply("Выберите валюты в /settings")
-         return
+    if is_private:
+        status_msg = await message.answer("🔍 Распознаю текст...")
 
-    response_lines = []
+    try:
+        # Get the largest photo (last in list)
+        photo = message.photo[-1]
 
-    for price in prices:
-        flag = get_flag(price.currency)
+        # Download photo
+        file_io = io.BytesIO()
+        await message.bot.download(photo, destination=file_io)
+        image_bytes = file_io.getvalue()
 
-        line_parts = [f"{flag} {price.amount:g} {price.currency} ≈"]
+        # Run OCR in executor
+        loop = asyncio.get_running_loop()
+        text = await loop.run_in_executor(None, image_to_text, image_bytes)
 
-        conversions = []
-        for target_code in target_currencies:
-            if target_code == price.currency:
-                continue
+        if not text:
+            if is_private and status_msg:
+                await status_msg.edit_text("Не удалось распознать текст.")
+            return
 
-            target_flag = get_flag(target_code)
-            converted_amount = await rates_service.convert(price.amount, price.currency, target_code)
+        prices = recognize(text)
+        if not prices:
+            if is_private and status_msg:
+                await status_msg.edit_text("Не нашел валют на изображении.")
+            return
 
-            formatted_amount = f"{converted_amount:.2f}".rstrip("0").rstrip(".")
-            conversions.append(f"{target_flag} {formatted_amount} {target_code}")
+        response = await convert_prices(prices, session, message.chat.id)
 
-        if conversions:
-            line_parts.append(" | ".join(conversions))
-            response_lines.append(" ".join(line_parts))
+        if response:
+            if is_private and status_msg:
+                await status_msg.edit_text(response)
+            else:
+                await message.reply(response)
+        else:
+            if is_private and status_msg:
+                await status_msg.edit_text("Валюты найдены, но не выбраны целевые валюты в настройках.")
 
-    if response_lines:
-        await message.reply("\n".join(response_lines))
+    except Exception as e:
+        if is_private and status_msg:
+            await status_msg.edit_text(f"Ошибка при обработке: {str(e)}")
+        # In groups, stay silent on error
