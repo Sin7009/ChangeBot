@@ -5,6 +5,8 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng libgl1-mesa-glx && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Сначала копируем файлы зависимостей.
