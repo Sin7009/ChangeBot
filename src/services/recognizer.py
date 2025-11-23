@@ -50,6 +50,13 @@ class CurrencyRecognizer:
         "лямов": 1000000.0
     }
 
+    STOP_WORDS = {
+        "pro", "max", "plus", "ultra", "mini", "slim",
+        "gb", "tb", "гб", "тб",
+        "шт", "уп", "kg", "кг",
+        "цена", "price", "сумма", "итого", "total"
+    }
+
     # Regex to capture amount and currency/slang
     PATTERN_START = re.compile(r'(\d+(?:[.,]\d+)?)\s*([kкmм](?![a-zA-Zа-яА-Я]))?\s*([$€£¥₽]|[a-zA-Zа-яА-Я]+)')
     PATTERN_END = re.compile(r'([$€£¥₽]|[a-zA-Zа-яА-Я]+)\s*(\d+(?:[.,]\d+)?)\s*([kкmм](?![a-zA-Zа-яА-Я]))?')
@@ -69,10 +76,15 @@ class CurrencyRecognizer:
     @classmethod
     def parse(cls, text: str) -> List[Price]:
         results = []
-        text = text.lower()
+
+        # Удаляем стоп-слова, чтобы они не мешали парсингу (например, "14 PRO")
+        text_cleaned = text.lower()
+        for word in cls.STOP_WORDS:
+            # Заменяем слово на пробел, только если оно стоит отдельно (окружено границами \b)
+            text_cleaned = re.sub(r'\b' + re.escape(word) + r'\b', ' ', text_cleaned)
 
         # Pattern 1: Number [multiplier] Currency
-        for match in cls.PATTERN_START.finditer(text):
+        for match in cls.PATTERN_START.finditer(text_cleaned):
             amount_str, multiplier_suffix, currency_raw = match.group(1), match.group(2), match.group(3)
             amount = cls._normalize_amount(amount_str)
 
@@ -97,7 +109,7 @@ class CurrencyRecognizer:
             results.append(Price(amount=amount * multiplier, currency=currency_code))
 
         # Pattern 2: Currency Number [multiplier]
-        for match in cls.PATTERN_END.finditer(text):
+        for match in cls.PATTERN_END.finditer(text_cleaned):
             currency_raw, amount_str, multiplier_suffix = match.group(1), match.group(2), match.group(3)
             amount = cls._normalize_amount(amount_str)
 
@@ -116,7 +128,7 @@ class CurrencyRecognizer:
 
         # Standalone slang words
         standalone_slang = re.compile(r'(?<!\d)\s*(?<!\d\s)(косарь|косаря|косарей|лям|лямов)\b')
-        for match in standalone_slang.finditer(text):
+        for match in standalone_slang.finditer(text_cleaned):
             word = match.group(1)
             if word in cls.SLANG_AMOUNT_CURRENCY:
                 val, curr = cls.SLANG_AMOUNT_CURRENCY[word]

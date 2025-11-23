@@ -2,7 +2,7 @@ import io
 import logging
 from typing import Optional
 
-from PIL import Image
+from PIL import Image, ImageEnhance
 import pytesseract
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,9 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
         image = Image.open(io.BytesIO(image_bytes))
         # Convert to grayscale for better OCR accuracy
         image = image.convert('L')
+
+        enhancer = ImageEnhance.Contrast(image)
+        image = enhancer.enhance(2.0)
 
         # Configure Tesseract:
         # -l rus+eng: Support Russian and English
