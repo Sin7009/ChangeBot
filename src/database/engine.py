@@ -19,10 +19,12 @@ async_session = async_sessionmaker(
     expire_on_commit=False
 )
 
+
 async def init_db():
     """Initializes the database by creating all tables."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
 
 async def close_db():
     """Closes the database connection."""

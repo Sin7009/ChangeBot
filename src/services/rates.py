@@ -6,6 +6,7 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
+
 class RatesService:
     _instance = None
 
@@ -69,7 +70,7 @@ class RatesService:
 
                     # FIX: Убираем NaN и берем последнее валидное значение
                     valid_values = series.dropna()
-                    
+
                     if valid_values.empty:
                         logger.warning(f"No valid data found for {ticker}")
                         continue
@@ -78,7 +79,8 @@ class RatesService:
 
                     rate = float(val)
                     if is_inverse:
-                        if rate == 0: continue
+                        if rate == 0:
+                            continue
                         rate = 1.0 / rate
 
                     new_rates[code] = rate
@@ -128,21 +130,24 @@ class RatesService:
         rate_to = rates.get(to_curr)
 
         if rate_from is None:
-             # Fallback for USD base
-             if from_curr == "USD": rate_from = 1.0
-             else: 
-                 logger.warning(f"Currency {from_curr} not found in rates.")
-                 return 0.0
+            # Fallback for USD base
+            if from_curr == "USD":
+                rate_from = 1.0
+            else:
+                logger.warning(f"Currency {from_curr} not found in rates.")
+                return 0.0
 
         if rate_to is None:
-             if to_curr == "USD": rate_to = 1.0
-             else:
-                 logger.warning(f"Currency {to_curr} not found in rates.")
-                 return 0.0
+            if to_curr == "USD":
+                rate_to = 1.0
+            else:
+                logger.warning(f"Currency {to_curr} not found in rates.")
+                return 0.0
 
         if rate_from == 0.0:
             return 0.0
 
         return amount * (rate_to / rate_from)
+
 
 rates_service = RatesService()

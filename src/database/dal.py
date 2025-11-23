@@ -6,6 +6,7 @@ from src.database.models import ChatSettings
 
 DEFAULT_CURRENCIES = ["USD", "EUR", "RUB"]
 
+
 async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings:
     """
     Retrieves chat settings for the given chat_id.
@@ -18,7 +19,7 @@ async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings
     if settings is None:
         settings = ChatSettings(
             chat_id=chat_id,
-            target_currencies=list(DEFAULT_CURRENCIES), # Copy
+            target_currencies=list(DEFAULT_CURRENCIES),  # Copy
             default_source="USD"
         )
         session.add(settings)
@@ -26,6 +27,7 @@ async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings
         await session.refresh(settings)
 
     return settings
+
 
 async def toggle_currency(session: AsyncSession, chat_id: int, currency_code: str) -> List[str]:
     """

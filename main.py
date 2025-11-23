@@ -11,6 +11,7 @@ from src.bot.handlers import main_router
 from src.bot.inline import inline_router
 from src.bot.middlewares import DbSessionMiddleware
 
+
 async def main():
     # Configure logging
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)

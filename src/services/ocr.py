@@ -7,6 +7,7 @@ import pytesseract
 
 logger = logging.getLogger(__name__)
 
+
 def image_to_text(image_bytes: bytes) -> Optional[str]:
     """
     Extracts text from an image byte stream using Tesseract OCR.
