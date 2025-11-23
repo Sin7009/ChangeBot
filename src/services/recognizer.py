@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 @dataclass
 class Price:
@@ -85,7 +85,7 @@ class CurrencyRecognizer:
         return float(amount_str.replace(',', '.'))
 
     @classmethod
-    def _validate_currency_code(cls, currency_raw: str) -> str:
+    def _validate_currency_code(cls, currency_raw: str) -> Optional[str]:
         """
         Validates and returns a currency code from raw input.
         Returns the currency code if valid, None otherwise.
