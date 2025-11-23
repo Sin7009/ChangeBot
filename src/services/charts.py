@@ -1,8 +1,8 @@
 import io
 from typing import Optional
 import matplotlib
-# Указываем, что у нас нет дисплея. Это обязательно для сервера.
-# matplotlib.use() must be called before importing pyplot
+# Configure matplotlib to use Agg backend (no display) for server environment.
+# This must be set before importing pyplot.
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 import matplotlib.dates as mdates  # noqa: E402
