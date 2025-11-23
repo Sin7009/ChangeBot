@@ -68,5 +68,48 @@ class TestRecognizer(unittest.TestCase):
         self.assertEqual(res[0].amount, 10.0)
         self.assertEqual(res[0].currency, "ETH")
 
+    def test_no_false_positive_gb(self):
+        # "16 ГБ" should NOT be recognized as currency
+        res = recognize("16 ГБ")
+        self.assertEqual(len(res), 0)
+
+    def test_no_false_positive_bit(self):
+        # "128 БИТ" should NOT be recognized as currency
+        res = recognize("128 БИТ")
+        self.assertEqual(len(res), 0)
+
+    def test_no_false_positive_rtx(self):
+        # "5060 RTX" should NOT be recognized as currency (GPU model)
+        res = recognize("5060 RTX")
+        self.assertEqual(len(res), 0)
+
+    def test_no_false_positive_gpu(self):
+        # "2280 GPU" should NOT be recognized as currency
+        res = recognize("2280 GPU")
+        self.assertEqual(len(res), 0)
+
+    def test_no_false_positive_random_3letter(self):
+        # Random 3-letter codes should NOT be recognized
+        res = recognize("100 ABC")
+        self.assertEqual(len(res), 0)
+        
+        res = recognize("200 XYZ")
+        self.assertEqual(len(res), 0)
+
+    def test_mixed_real_and_fake_currencies(self):
+        # Real currency should be recognized, fake ones should not
+        # "295 RUB и 5060 RTX"
+        res = recognize("295 RUB и 5060 RTX")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].amount, 295.0)
+        self.assertEqual(res[0].currency, "RUB")
+
+    def test_gpu_text_with_real_currency(self):
+        # Text about GPU with real currency mixed in
+        text = "обычный комплект на 32 ГБ догоняет в цене карточку RTX 5060"
+        res = recognize(text)
+        # Should find nothing as neither "ГБ" nor "RTX" are valid currencies
+        self.assertEqual(len(res), 0)
+
 if __name__ == '__main__':
     unittest.main()

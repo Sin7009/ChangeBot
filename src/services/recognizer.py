@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 @dataclass
 class Price:
@@ -8,6 +8,14 @@ class Price:
     currency: str
 
 class CurrencyRecognizer:
+    # Valid currency codes - whitelist to prevent false positives
+    VALID_CURRENCIES = {
+        # Fiat currencies
+        "USD", "EUR", "RUB", "GBP", "CNY", "KZT", "TRY", "JPY",
+        # Crypto
+        "BTC", "ETH", "TON", "USDT"
+    }
+    
     # Slang mapping
     SLANG_MAP: Dict[str, str] = {
         # USD
@@ -31,7 +39,7 @@ class CurrencyRecognizer:
         
         # Crypto
         "биток": "BTC", "битка": "BTC", "битков": "BTC", "btc": "BTC", "bitcoin": "BTC",
-        "эфир": "ETH", "eth": "ETH", "ethereum": "ETH",
+        "эфир": "ETH", "эфира": "ETH", "эфиров": "ETH", "eth": "ETH", "ethereum": "ETH",
         "ton": "TON", "тон": "TON",
         "usdt": "USDT", "tether": "USDT"
     }
@@ -52,9 +60,12 @@ class CurrencyRecognizer:
 
     STOP_WORDS = {
         "pro", "max", "plus", "ultra", "mini", "slim",
-        "gb", "tb", "гб", "тб",
+        "gb", "tb", "гб", "тб", "мб", "кб",
         "шт", "уп", "kg", "кг",
-        "цена", "price", "сумма", "итого", "total"
+        "цена", "price", "сумма", "итого", "total",
+        # Technical terms that can be mistaken for currencies
+        "bit", "бит", "gpu", "rtx", "gtx", "cpu", "ram", 
+        "ssd", "hdd", "mhz", "ghz", "ddr",
     }
 
     # Regex to capture amount and currency/slang
@@ -72,6 +83,25 @@ class CurrencyRecognizer:
     @staticmethod
     def _normalize_amount(amount_str: str) -> float:
         return float(amount_str.replace(',', '.'))
+
+    @classmethod
+    def _validate_currency_code(cls, currency_raw: str) -> Optional[str]:
+        """
+        Validates and returns a currency code from raw input.
+        Returns the currency code if valid, None otherwise.
+        """
+        # Check if it's in the slang map first
+        currency_code = cls.SLANG_MAP.get(currency_raw)
+        if currency_code:
+            return currency_code
+        
+        # Only accept 3-letter codes that are in the valid currencies whitelist
+        if len(currency_raw) == 3 and currency_raw.isalpha():
+            currency_code = currency_raw.upper()
+            if currency_code in cls.VALID_CURRENCIES:
+                return currency_code
+        
+        return None
 
     @classmethod
     def parse(cls, text: str) -> List[Price]:
@@ -99,12 +129,9 @@ class CurrencyRecognizer:
                  else:
                      continue 
             else:
-                currency_code = cls.SLANG_MAP.get(currency_raw)
+                currency_code = cls._validate_currency_code(currency_raw)
                 if not currency_code:
-                     if len(currency_raw) == 3 and currency_raw.isalpha():
-                         currency_code = currency_raw.upper()
-                     else:
-                         continue 
+                    continue 
 
             results.append(Price(amount=amount * multiplier, currency=currency_code))
 
@@ -113,12 +140,9 @@ class CurrencyRecognizer:
             currency_raw, amount_str, multiplier_suffix = match.group(1), match.group(2), match.group(3)
             amount = cls._normalize_amount(amount_str)
 
-            currency_code = cls.SLANG_MAP.get(currency_raw)
+            currency_code = cls._validate_currency_code(currency_raw)
             if not currency_code:
-                 if len(currency_raw) == 3 and currency_raw.isalpha():
-                     currency_code = currency_raw.upper()
-                 else:
-                     continue
+                continue
 
             multiplier = 1.0
             if multiplier_suffix:
