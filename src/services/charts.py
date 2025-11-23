@@ -1,11 +1,13 @@
 import io
+from typing import Optional
 import matplotlib
 # Указываем, что у нас нет дисплея. Это обязательно для сервера.
+# matplotlib.use() must be called before importing pyplot
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import yfinance as yf
-from typing import Optional
+import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.dates as mdates  # noqa: E402
+import yfinance as yf  # noqa: E402
+
 
 def generate_chart(pair: str, period: str = "1mo") -> Optional[io.BytesIO]:
     """

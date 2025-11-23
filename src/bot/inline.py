@@ -7,6 +7,7 @@ from src.services.rates import rates_service
 
 inline_router = Router()
 
+
 @inline_router.inline_query()
 async def inline_query_handler(inline_query: InlineQuery):
     text = inline_query.query.strip()

@@ -2,10 +2,12 @@ import re
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Set
 
+
 @dataclass
 class Price:
     amount: float
     currency: str
+
 
 class CurrencyRecognizer:
     # Valid currency codes - whitelist to prevent false positives
@@ -18,28 +20,28 @@ class CurrencyRecognizer:
 
     # Symbols that are considered "signs" for strict mode
     SYMBOLS: Set[str] = {"$", "€", "£", "¥", "₽", "₸", "₿"}
-    
+
     # Slang mapping
     SLANG_MAP: Dict[str, str] = {
         # USD
         "бакс": "USD", "баксов": "USD", "баксы": "USD", "dollar": "USD", "$": "USD",
         "доллар": "USD", "доллара": "USD", "долларов": "USD", "доллары": "USD",
-        
+
         # EUR
         "евро": "EUR", "euro": "EUR", "€": "EUR",
-        
+
         # RUB
         "руб": "RUB", "рубль": "RUB", "рублей": "RUB", "р": "RUB", "ruble": "RUB", "₽": "RUB",
-        
+
         # GBP
         "фунт": "GBP", "pound": "GBP", "£": "GBP", "фунтов": "GBP", "фунта": "GBP",
-        
+
         # KZT
         "тенге": "KZT", "тг": "KZT", "₸": "KZT",
-        
+
         # CNY
         "юань": "CNY", "юаней": "CNY", "юаня": "CNY", "cny": "CNY", "¥": "CNY",
-        
+
         # Crypto
         "биток": "BTC", "битка": "BTC", "битков": "BTC", "btc": "BTC", "bitcoin": "BTC", "₿": "BTC",
         "эфир": "ETH", "эфира": "ETH", "эфиров": "ETH", "eth": "ETH", "ethereum": "ETH",
@@ -59,12 +61,15 @@ class CurrencyRecognizer:
         "тонна": 1000.0,
         "лям": 1000000.0,
         "лямов": 1000000.0,
-        
+
         # Extended multipliers
         "тысяча": 1000.0, "тысячи": 1000.0, "тысяч": 1000.0,
-        "миллион": 1000000.0, "миллиона": 1000000.0, "миллионов": 1000000.0, "млн": 1000000.0,
-        "миллиард": 1000000000.0, "миллиарда": 1000000000.0, "миллиардов": 1000000000.0, "млрд": 1000000000.0,
-        "триллион": 1000000000000.0, "триллиона": 1000000000000.0, "триллионов": 1000000000000.0, "трлн": 1000000000000.0,
+        "миллион": 1000000.0, "миллиона": 1000000.0, "миллионов": 1000000.0,
+        "млн": 1000000.0,
+        "миллиард": 1000000000.0, "миллиарда": 1000000000.0,
+        "миллиардов": 1000000000.0, "млрд": 1000000000.0,
+        "триллион": 1000000000000.0, "триллиона": 1000000000000.0,
+        "триллионов": 1000000000000.0, "трлн": 1000000000000.0,
     }
 
     STOP_WORDS = {
@@ -73,7 +78,7 @@ class CurrencyRecognizer:
         "шт", "уп", "kg", "кг",
         "цена", "price", "сумма", "итого", "total",
         # Technical terms that can be mistaken for currencies
-        "bit", "бит", "gpu", "rtx", "gtx", "cpu", "ram", 
+        "bit", "бит", "gpu", "rtx", "gtx", "cpu", "ram",
         "ssd", "hdd", "mhz", "ghz", "ddr",
     }
 
@@ -81,9 +86,12 @@ class CurrencyRecognizer:
     # Suffix style: k, m, к, м (followed by non-letters)
     _SUFFIX_REGEX = r'[kкmм](?![a-zA-Zа-яА-Я])'
     # Word style: match any key in MULTIPLIER_MAP that is > 1 char
-    _WORD_MULTIPLIERS = sorted([k for k in MULTIPLIER_MAP.keys() if len(k) > 1], key=len, reverse=True)
+    _WORD_MULTIPLIERS = sorted(
+        [k for k in MULTIPLIER_MAP.keys() if len(k) > 1],
+        key=len, reverse=True
+    )
     _WORD_REGEX = r'(?:' + '|'.join(map(re.escape, _WORD_MULTIPLIERS)) + r')'
-    
+
     # Combined Multiplier Regex: (Suffix | Word)
     MULTIPLIER_REGEX = f'(?:{_SUFFIX_REGEX}|{_WORD_REGEX})'
 
@@ -94,7 +102,7 @@ class CurrencyRecognizer:
     PATTERN_START = re.compile(
         rf'(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?\s*([$€£¥₽₸₿]|[a-zA-Zа-яА-Я]+)'
     )
-    
+
     # Currency Number [multiplier]
     PATTERN_END = re.compile(
         rf'([$€£¥₽₸₿]|[a-zA-Zа-яА-Я]+)\s*(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?'
@@ -122,13 +130,13 @@ class CurrencyRecognizer:
         currency_code = cls.SLANG_MAP.get(currency_raw)
         if currency_code:
             return currency_code
-        
+
         # Only accept 3-letter codes that are in the valid currencies whitelist
         if len(currency_raw) == 3 and currency_raw.isalpha():
             currency_code = currency_raw.upper()
             if currency_code in cls.VALID_CURRENCIES:
                 return currency_code
-        
+
         return None
 
     @classmethod
@@ -145,7 +153,7 @@ class CurrencyRecognizer:
         for match in cls.PATTERN_START.finditer(text_cleaned):
             amount_str, multiplier_str, currency_raw = match.group(1), match.group(2), match.group(3)
             amount = cls._normalize_amount(amount_str)
-            
+
             # Strict mode check
             if strict_mode:
                 if currency_raw not in cls.SYMBOLS:
@@ -162,11 +170,11 @@ class CurrencyRecognizer:
                 if currency_raw in ["косарь", "косаря", "косарей", "лям", "лямов", "тонна"]:
                     currency_code = "RUB"
                 else:
-                    continue 
+                    continue
             else:
                 currency_code = cls._validate_currency_code(currency_raw)
                 if not currency_code:
-                    continue 
+                    continue
 
             results.append(Price(amount=amount * multiplier, currency=currency_code))
 
@@ -200,6 +208,7 @@ class CurrencyRecognizer:
                     results.append(Price(amount=val, currency=curr))
 
         return results
+
 
 def recognize(text: str, strict_mode: bool = False) -> List[Price]:
     return CurrencyRecognizer.parse(text, strict_mode)
