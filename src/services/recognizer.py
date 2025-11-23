@@ -59,7 +59,7 @@ class CurrencyRecognizer:
         "тонна": 1000.0,
         "лям": 1000000.0,
         "лямов": 1000000.0,
-
+        
         # Extended multipliers
         "тысяча": 1000.0, "тысячи": 1000.0, "тысяч": 1000.0,
         "миллион": 1000000.0, "миллиона": 1000000.0, "миллионов": 1000000.0, "млн": 1000000.0,
@@ -83,7 +83,7 @@ class CurrencyRecognizer:
     # Word style: match any key in MULTIPLIER_MAP that is > 1 char
     _WORD_MULTIPLIERS = sorted([k for k in MULTIPLIER_MAP.keys() if len(k) > 1], key=len, reverse=True)
     _WORD_REGEX = r'(?:' + '|'.join(map(re.escape, _WORD_MULTIPLIERS)) + r')'
-
+    
     # Combined Multiplier Regex: (Suffix | Word)
     MULTIPLIER_REGEX = f'(?:{_SUFFIX_REGEX}|{_WORD_REGEX})'
 
@@ -94,7 +94,7 @@ class CurrencyRecognizer:
     PATTERN_START = re.compile(
         rf'(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?\s*([$€£¥₽₸₿]|[a-zA-Zа-яА-Я]+)'
     )
-
+    
     # Currency Number [multiplier]
     PATTERN_END = re.compile(
         rf'([$€£¥₽₸₿]|[a-zA-Zа-яА-Я]+)\s*(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?'
@@ -145,7 +145,7 @@ class CurrencyRecognizer:
         for match in cls.PATTERN_START.finditer(text_cleaned):
             amount_str, multiplier_str, currency_raw = match.group(1), match.group(2), match.group(3)
             amount = cls._normalize_amount(amount_str)
-
+            
             # Strict mode check
             if strict_mode:
                 if currency_raw not in cls.SYMBOLS:
@@ -153,16 +153,16 @@ class CurrencyRecognizer:
 
             multiplier = 1.0
             if multiplier_str:
-                 multiplier = cls.MULTIPLIER_MAP.get(multiplier_str, 1.0)
+                multiplier = cls.MULTIPLIER_MAP.get(multiplier_str, 1.0)
 
             # Check if currency_raw is actually a special slang amount (like "косарь" used as currency placeholder)
             if currency_raw in cls.MULTIPLIER_MAP and currency_raw not in cls.SLANG_MAP:
-                 # Logic for "5 косарей" where "косарей" acts as multiplier AND implies RUB
-                 multiplier = cls.MULTIPLIER_MAP[currency_raw]
-                 if currency_raw in ["косарь", "косаря", "косарей", "лям", "лямов", "тонна"]:
-                     currency_code = "RUB"
-                 else:
-                     continue 
+                # Logic for "5 косарей" where "косарей" acts as multiplier AND implies RUB
+                multiplier = cls.MULTIPLIER_MAP[currency_raw]
+                if currency_raw in ["косарь", "косаря", "косарей", "лям", "лямов", "тонна"]:
+                    currency_code = "RUB"
+                else:
+                    continue 
             else:
                 currency_code = cls._validate_currency_code(currency_raw)
                 if not currency_code:
