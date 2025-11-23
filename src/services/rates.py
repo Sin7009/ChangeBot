@@ -27,21 +27,9 @@ class RatesService:
         Fetches rates using yfinance.
         We want all rates relative to USD (USD -> XXX).
         So rate = how many XXX per 1 USD.
-
-        Tickers strategy:
-        Fiat pairs are usually quoted as BaseQuote=X.
-        e.g. RUB=X means "USD/RUB" (How many RUB per USD). Value ~ 90.
-        e.g. EUR=X means "USD/EUR" (How many EUR per USD). Value ~ 0.9.
-
-        Crypto pairs are usually Quote-Base.
-        e.g. BTC-USD means "BTC/USD" (How many USD per BTC). Value ~ 60000.
-        To get "How many BTC per 1 USD", we invert it (1/60000).
         """
 
         # Map: Currency Code -> (Ticker, Is_Inverse)
-        # Is_Inverse=False: Ticker value is "XXX per USD" (Direct rate)
-        # Is_Inverse=True: Ticker value is "USD per XXX" (We need 1/value)
-
         TICKERS_MAP = {
             "RUB": ("RUB=X", False),
             "EUR": ("EUR=X", False),
@@ -54,20 +42,18 @@ class RatesService:
             # Crypto
             "BTC": ("BTC-USD", True),
             "ETH": ("ETH-USD", True),
-            "TON": ("TON11419-USD", True), # TON Coin ticker on Yahoo
+            "TON": ("TON11419-USD", True),
             "USDT": ("USDT-USD", True),
         }
 
         tickers_list = [t[0] for t in TICKERS_MAP.values()]
 
         try:
-            # We use a loop runner because yfinance is synchronous
             loop = asyncio.get_running_loop()
 
             def fetch_sync():
-                # period="1d" gets recent data. We look at the last 'Close'.
-                # group_by='ticker' ensures we get a MultiIndex if multiple tickers
-                data = yf.download(tickers_list, period="1d", group_by='ticker', progress=False)
+                # FIX: Берем данные за 5 дней, чтобы исключить пустые значения на выходных/праздниках
+                data = yf.download(tickers_list, period="5d", group_by='ticker', progress=False)
                 return data
 
             data = await loop.run_in_executor(None, fetch_sync)
@@ -76,23 +62,19 @@ class RatesService:
 
             for code, (ticker, is_inverse) in TICKERS_MAP.items():
                 try:
-                    # Dataframe structure depends on number of tickers.
-                    # If multiple, columns are (Ticker, PriceType).
-                    # Accessing data[ticker]['Close'] gives a Series.
-                    # We take the last value.
-
                     if len(tickers_list) > 1:
                         series = data[ticker]['Close']
                     else:
-                        series = data['Close'] # Should not happen with multiple tickers
+                        series = data['Close']
 
-                    val = series.iloc[-1]
-
-                    # Check for NaN
-                    import math
-                    if math.isnan(val):
-                        logger.warning(f"NaN value for {ticker}")
+                    # FIX: Убираем NaN и берем последнее валидное значение
+                    valid_values = series.dropna()
+                    
+                    if valid_values.empty:
+                        logger.warning(f"No valid data found for {ticker}")
                         continue
+
+                    val = valid_values.iloc[-1]
 
                     rate = float(val)
                     if is_inverse:
@@ -139,31 +121,28 @@ class RatesService:
             logger.error("No rates available for conversion.")
             return 0.0
 
-        # Add base currency if missing (USD=1.0 is set in _fetch_rates but just in case)
         if "USD" not in rates:
             rates["USD"] = 1.0
-
-        # Logic: Convert from -> Base(USD) -> To
-        # Rate is "How many [Currency] per 1 USD"
 
         rate_from = rates.get(from_curr)
         rate_to = rates.get(to_curr)
 
         if rate_from is None:
-             logger.warning(f"Currency {from_curr} not found in rates.")
-             # Fallback: if from is USD, rate is 1.0
+             # Fallback for USD base
              if from_curr == "USD": rate_from = 1.0
-             else: return 0.0
+             else: 
+                 logger.warning(f"Currency {from_curr} not found in rates.")
+                 return 0.0
 
         if rate_to is None:
-             logger.warning(f"Currency {to_curr} not found in rates.")
              if to_curr == "USD": rate_to = 1.0
-             else: return 0.0
+             else:
+                 logger.warning(f"Currency {to_curr} not found in rates.")
+                 return 0.0
 
         if rate_from == 0.0:
             return 0.0
 
-        # Amount * (Rate_To / Rate_From)
         return amount * (rate_to / rate_from)
 
 rates_service = RatesService()
