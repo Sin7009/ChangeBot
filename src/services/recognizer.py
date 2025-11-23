@@ -8,6 +8,14 @@ class Price:
     currency: str
 
 class CurrencyRecognizer:
+    # Valid currency codes - whitelist to prevent false positives
+    VALID_CURRENCIES = {
+        # Fiat currencies
+        "USD", "EUR", "RUB", "GBP", "CNY", "KZT", "TRY", "JPY",
+        # Crypto
+        "BTC", "ETH", "TON", "USDT"
+    }
+    
     # Slang mapping
     SLANG_MAP: Dict[str, str] = {
         # USD
@@ -31,7 +39,7 @@ class CurrencyRecognizer:
         
         # Crypto
         "биток": "BTC", "битка": "BTC", "битков": "BTC", "btc": "BTC", "bitcoin": "BTC",
-        "эфир": "ETH", "eth": "ETH", "ethereum": "ETH",
+        "эфир": "ETH", "эфира": "ETH", "эфиров": "ETH", "eth": "ETH", "ethereum": "ETH",
         "ton": "TON", "тон": "TON",
         "usdt": "USDT", "tether": "USDT"
     }
@@ -52,9 +60,12 @@ class CurrencyRecognizer:
 
     STOP_WORDS = {
         "pro", "max", "plus", "ultra", "mini", "slim",
-        "gb", "tb", "гб", "тб",
+        "gb", "tb", "гб", "тб", "мб", "кб",
         "шт", "уп", "kg", "кг",
-        "цена", "price", "сумма", "итого", "total"
+        "цена", "price", "сумма", "итого", "total",
+        # Technical terms that can be mistaken for currencies
+        "bit", "бит", "gpu", "rtx", "gtx", "cpu", "ram", 
+        "ssd", "hdd", "mhz", "ghz", "ddr"
     }
 
     # Regex to capture amount and currency/slang
@@ -101,8 +112,11 @@ class CurrencyRecognizer:
             else:
                 currency_code = cls.SLANG_MAP.get(currency_raw)
                 if not currency_code:
+                     # Only accept 3-letter codes that are in the valid currencies whitelist
                      if len(currency_raw) == 3 and currency_raw.isalpha():
                          currency_code = currency_raw.upper()
+                         if currency_code not in cls.VALID_CURRENCIES:
+                             continue
                      else:
                          continue 
 
@@ -115,8 +129,11 @@ class CurrencyRecognizer:
 
             currency_code = cls.SLANG_MAP.get(currency_raw)
             if not currency_code:
+                 # Only accept 3-letter codes that are in the valid currencies whitelist
                  if len(currency_raw) == 3 and currency_raw.isalpha():
                      currency_code = currency_raw.upper()
+                     if currency_code not in cls.VALID_CURRENCIES:
+                         continue
                  else:
                      continue
 
