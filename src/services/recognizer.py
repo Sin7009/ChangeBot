@@ -30,7 +30,7 @@ class CurrencyRecognizer:
         "юань": "CNY", "юаней": "CNY", "юаня": "CNY", "cny": "CNY", "¥": "CNY",
         
         # Crypto
-        "биток": "BTC", "btc": "BTC", "bitcoin": "BTC",
+        "биток": "BTC", "битка": "BTC", "битков": "BTC", "btc": "BTC", "bitcoin": "BTC",
         "эфир": "ETH", "eth": "ETH", "ethereum": "ETH",
         "ton": "TON", "тон": "TON",
         "usdt": "USDT", "tether": "USDT"
