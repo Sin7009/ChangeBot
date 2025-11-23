@@ -4,6 +4,7 @@
 README.md
 __pycache__
 .env*
+.venv
 docker-compose*.yml
 Dockerfile
 *.service
