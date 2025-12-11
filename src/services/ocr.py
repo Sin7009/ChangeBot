@@ -2,7 +2,7 @@ import io
 import logging
 from typing import Optional
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageOps
 import pytesseract
 
 logger = logging.getLogger(__name__)
@@ -19,11 +19,30 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
     """
     try:
         image = Image.open(io.BytesIO(image_bytes))
-        # Convert to grayscale for better OCR accuracy
+
+        # 1. Resize if too small (upscaling helps Tesseract detect characters)
+        width, height = image.size
+        # Target width ~1500-2000 for good OCR.
+        # If the image is a screenshot, it might be e.g. 500px wide.
+        if width < 1000:
+            scale_factor = 2 if width > 500 else 3
+            new_size = (width * scale_factor, height * scale_factor)
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+
+        # 2. Convert to grayscale for better OCR accuracy
         image = image.convert('L')
 
+        # 3. Enhance Contrast
+        # Auto-contrast is often better than fixed factor for varying lighting conditions
+        image = ImageOps.autocontrast(image, cutoff=2) # cutoff ignores top/bottom 2% of histogram
+
+        # Additional fixed contrast boost can still help separate faint text from background
         enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(2.0)
+        image = enhancer.enhance(1.5)
+
+        # 4. Sharpen (helps define edges for Tesseract)
+        sharpness = ImageEnhance.Sharpness(image)
+        image = sharpness.enhance(2.0)
 
         # Configure Tesseract:
         # -l rus+eng: Support Russian and English
