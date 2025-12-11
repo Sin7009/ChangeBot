@@ -61,3 +61,6 @@ dependencies = [
     "yarl==1.22.0",
     "yfinance==0.2.66",
 ]
+
+[dependency-groups]
+dev = []

@@ -243,6 +243,9 @@ requires-dist = [
     { name = "yfinance", specifier = "==0.2.66" },
 ]
 
+[package.metadata.requires-dev]
+dev = []
+
 [[package]]
 name = "attrs"
 version = "25.4.0"
