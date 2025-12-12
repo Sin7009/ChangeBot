@@ -5,7 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.future import create_engine
 
-from app.models.db import Base
+from src.database.models import Base
 
 config = context.config
 logging.config.fileConfig(config.config_file_name)

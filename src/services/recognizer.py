@@ -133,6 +133,17 @@ class CurrencyRecognizer:
 
     @classmethod
     def parse(cls, text: str, strict_mode: bool = False) -> List[Price]:
+        """
+        Parses text to identify currency amounts.
+
+        Args:
+            text: The input string to parse.
+            strict_mode: If True, only matches currencies with explicit symbols (e.g., $, €)
+                         and strict patterns. Used to reduce false positives in OCR text.
+
+        Returns:
+            A list of recognized Price objects.
+        """
         results = []
 
         # Удаляем стоп-слова, чтобы они не мешали парсингу (например, "14 PRO")

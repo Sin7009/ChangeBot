@@ -52,7 +52,7 @@ class RatesService:
             loop = asyncio.get_running_loop()
 
             def fetch_sync():
-                # FIX: Берем данные за 5 дней, чтобы исключить пустые значения на выходных/праздниках
+                # Fetch data for 5 days to avoid empty values on weekends/holidays
                 data = yf.download(tickers_list, period="5d", group_by='ticker', progress=False)
                 return data
 
@@ -67,7 +67,7 @@ class RatesService:
                     else:
                         series = data['Close']
 
-                    # FIX: Убираем NaN и берем последнее валидное значение
+                    # Remove NaN and take the last valid value
                     valid_values = series.dropna()
                     
                     if valid_values.empty:

@@ -30,6 +30,10 @@ def get_flag(currency: str) -> str:
     return CURRENCY_FLAGS.get(currency, "💰")
 
 async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: int) -> Optional[str]:
+    """
+    Converts a list of recognized prices to the target currencies defined in chat settings.
+    Returns a formatted string with the conversions, or None if no targets are set.
+    """
     # Fetch settings
     settings = await get_chat_settings(session, chat_id)
     target_currencies = settings.target_currencies
@@ -123,7 +127,6 @@ async def cmd_chart(message: Message, command: CommandObject):
     # Run synchronous chart generation in a thread or executor if needed,
     # but for simplicity calling direct here (it blocks, but short time).
     # Ideally should use run_in_executor.
-    import asyncio
     loop = asyncio.get_running_loop()
 
     # Run yfinance/matplotlib in executor to avoid blocking event loop
@@ -165,6 +168,10 @@ async def handle_text(message: Message, session: AsyncSession):
 
 @main_router.message(F.photo)
 async def handle_photo(message: Message, session: AsyncSession):
+    """
+    Handles photo messages. Downloads the photo, performs OCR to extract text,
+    and then runs currency recognition in strict mode (requiring symbols).
+    """
     is_private = message.chat.type == "private"
     status_msg = None
 
