@@ -2,7 +2,7 @@ import io
 import logging
 from typing import Optional
 
-from PIL import Image, ImageEnhance, ImageOps
+from PIL import Image, ImageEnhance, ImageOps, ImageStat
 import pytesseract
 
 logger = logging.getLogger(__name__)
@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 def image_to_text(image_bytes: bytes) -> Optional[str]:
     """
     Extracts text from an image byte stream using Tesseract OCR.
+    Includes preprocessing for dark mode and low contrast.
 
     Args:
         image_bytes: The image data in bytes.
@@ -20,19 +21,32 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
     try:
         image = Image.open(io.BytesIO(image_bytes))
 
-        # 1. Resize if too small (upscaling helps Tesseract detect characters)
+        # Log original size
         width, height = image.size
-        # Target width ~1500-2000 for good OCR.
-        # If the image is a screenshot, it might be e.g. 500px wide.
+        logger.info(f"OCR Request: Image size {width}x{height}")
+
+        # 1. Resize if too small (upscaling helps Tesseract detect characters)
         if width < 1000:
             scale_factor = 2 if width > 500 else 3
             new_size = (width * scale_factor, height * scale_factor)
             image = image.resize(new_size, Image.Resampling.LANCZOS)
+            logger.info(f"Resized image to {new_size}")
 
         # 2. Convert to grayscale for better OCR accuracy
         image = image.convert('L')
 
-        # 3. Enhance Contrast
+        # 3. Detect Dark Mode and Invert
+        # Calculate mean brightness
+        stat = ImageStat.Stat(image)
+        avg_brightness = stat.mean[0]
+
+        if avg_brightness < 128:
+            logger.info(f"Image is dark (avg={avg_brightness:.2f}), inverting...")
+            image = ImageOps.invert(image)
+        else:
+            logger.info(f"Image is light (avg={avg_brightness:.2f}), skipping inversion.")
+
+        # 4. Enhance Contrast
         # Auto-contrast is often better than fixed factor for varying lighting conditions
         image = ImageOps.autocontrast(image, cutoff=2) # cutoff ignores top/bottom 2% of histogram
 
@@ -40,7 +54,7 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
         enhancer = ImageEnhance.Contrast(image)
         image = enhancer.enhance(1.5)
 
-        # 4. Sharpen (helps define edges for Tesseract)
+        # 5. Sharpen (helps define edges for Tesseract)
         sharpness = ImageEnhance.Sharpness(image)
         image = sharpness.enhance(2.0)
 
@@ -53,15 +67,23 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
         text = pytesseract.image_to_string(image, config=config)
 
         if not text:
+            logger.info("OCR Result: No text extracted.")
             return None
 
         cleaned_text = text.strip()
 
         if not cleaned_text:
+            logger.info("OCR Result: Text was empty after stripping.")
             return None
+
+        # Log the beginning of the text
+        log_text = cleaned_text.replace('\n', ' ')
+        if len(log_text) > 100:
+            log_text = log_text[:100] + "..."
+        logger.info(f"OCR Result: {log_text}")
 
         return cleaned_text
 
     except Exception as e:
-        logger.error(f"Error during OCR processing: {e}")
+        logger.error(f"Error during OCR processing: {e}", exc_info=True)
         return None
