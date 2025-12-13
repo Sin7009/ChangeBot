@@ -3,6 +3,7 @@ import logging
 import sys
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from src.config import settings
@@ -25,6 +26,13 @@ async def main():
     # Initialize Bot and Dispatcher
     bot = Bot(token=settings.BOT_TOKEN.get_secret_value())
     dp = Dispatcher(storage=MemoryStorage())
+
+    # Setup menu commands
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Start bot & info"),
+        BotCommand(command="settings", description="Configure currencies"),
+        BotCommand(command="chart", description="Get currency chart"),
+    ])
 
     dp.update.middleware(DbSessionMiddleware())
     dp.include_router(main_router)
