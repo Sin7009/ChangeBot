@@ -18,6 +18,7 @@ class RatesService:
             cls._instance.rates = {}
             cls._instance.base_currency = "USD"
             cls._instance.last_updated = 0.0
+            cls._instance._lock = asyncio.Lock()
             # No API key needed for yfinance
 
         return cls._instance
@@ -97,13 +98,18 @@ class RatesService:
         """Returns rates, updating from API if cache is stale."""
         now = time.time()
         if not self.rates or (now - self.last_updated > self.CACHE_TTL):
-            logger.info("Updating rates from yfinance...")
-            new_rates = await self._fetch_rates()
-            if new_rates:
-                self.rates = new_rates
-                self.last_updated = now
-            else:
-                logger.warning("Using stale rates due to API failure.")
+            # Use lock to prevent multiple concurrent API calls (cache stampede)
+            async with self._lock:
+                # Double-check cache condition after acquiring lock
+                now = time.time()
+                if not self.rates or (now - self.last_updated > self.CACHE_TTL):
+                    logger.info("Updating rates from yfinance...")
+                    new_rates = await self._fetch_rates()
+                    if new_rates:
+                        self.rates = new_rates
+                        self.last_updated = now
+                    else:
+                        logger.warning("Using stale rates due to API failure.")
 
         return self.rates
 
