@@ -68,10 +68,10 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
 @main_router.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        "Привет! Я бот-конвертер валют.\n\n"
+        "👋 Привет! Я бот-конвертер валют.\n\n"
         "Просто напиши мне сумму и валюту (например, '100 usd', '5к евро', 'косарь'), "
         "и я переведу её.\n\n"
-        "Настройки валют: /settings"
+        "⚙️ Настройки: /settings"
     )
 
 @main_router.message(Command("settings"))
@@ -122,7 +122,8 @@ async def cmd_chart(message: Message, command: CommandObject):
         # e.g. "USDRUB=X"
         ticker = f"{currency}RUB=X"
 
-    await message.answer(f"Генерирую график {currency}/RUB...")
+    status_msg = await message.answer(f"⏳ Генерирую график {currency}/RUB...")
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_photo")
 
     # Run synchronous chart generation in a thread or executor if needed,
     # but for simplicity calling direct here (it blocks, but short time).
@@ -133,10 +134,11 @@ async def cmd_chart(message: Message, command: CommandObject):
     buf = await loop.run_in_executor(None, generate_chart, ticker)
 
     if buf:
+        await status_msg.delete()
         photo = BufferedInputFile(buf.read(), filename=f"chart_{currency}.png")
         await message.reply_photo(photo, caption=f"График {currency}/RUB за месяц")
     else:
-        await message.answer("Не удалось получить данные для графика. Возможно, тикер не найден.")
+        await status_msg.edit_text("Не удалось получить данные для графика. Возможно, тикер не найден.")
 
 @main_router.callback_query(F.data.startswith("toggle_"))
 async def on_toggle_currency(callback: CallbackQuery, session: AsyncSession):
@@ -174,6 +176,8 @@ async def handle_photo(message: Message, session: AsyncSession):
     """
     is_private = message.chat.type == "private"
     status_msg = None
+
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
     if is_private:
         status_msg = await message.answer("🔍 Распознаю текст...")
