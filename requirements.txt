@@ -26,10 +26,8 @@ multitasking==0.0.12
 numpy==2.3.5
 packaging==25.0
 pandas==2.3.3
-peewee==3.18.3
 pillow==12.0.0
 platformdirs==4.5.0
-playwright==1.55.0
 propcache==0.4.1
 protobuf==6.33.1
 pycparser==2.23
@@ -38,6 +36,7 @@ pydantic-settings==2.12.0
 pydantic_core==2.33.2
 pyee==13.0.0
 pyparsing==3.2.5
+pytesseract>=0.3.13
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 pytz==2025.2
