@@ -1,5 +1,6 @@
 import asyncio
 import io
+import logging
 from typing import List, Optional
 
 from aiogram import Router, F
@@ -13,6 +14,8 @@ from src.services.charts import generate_chart
 from src.services.ocr import image_to_text
 from src.database.dal import get_chat_settings, toggle_currency
 from src.bot.keyboards import settings_keyboard
+
+logger = logging.getLogger(__name__)
 
 main_router = Router()
 
@@ -217,6 +220,7 @@ async def handle_photo(message: Message, session: AsyncSession):
                 await status_msg.edit_text("Валюты найдены, но не выбраны целевые валюты в настройках.")
 
     except Exception as e:
+        logger.error(f"Error handling photo: {e}", exc_info=True)
         if is_private and status_msg:
-            await status_msg.edit_text(f"Ошибка при обработке: {str(e)}")
+            await status_msg.edit_text("Произошла ошибка при обработке изображения. Пожалуйста, попробуйте позже.")
         # In groups, stay silent on error
