@@ -115,6 +115,10 @@
 
 3.  **Установите зависимости:**
     ```bash
+    # Установка из pyproject.toml (рекомендуется)
+    pip install .
+
+    # ИЛИ через requirements.txt
     pip install -r requirements.txt
     ```
 
