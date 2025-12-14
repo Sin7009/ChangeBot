@@ -1,4 +1,5 @@
 import io
+import logging
 import matplotlib
 # Указываем, что у нас нет дисплея. Это обязательно для сервера.
 matplotlib.use('Agg')
@@ -6,6 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import yfinance as yf
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 def generate_chart(pair: str, period: str = "1mo") -> Optional[io.BytesIO]:
     """
@@ -70,5 +73,5 @@ def generate_chart(pair: str, period: str = "1mo") -> Optional[io.BytesIO]:
         return buf
 
     except Exception as e:
-        print(f"Error generating chart for {pair}: {e}")
+        logger.error(f"Error generating chart for {pair}: {e}")
         return None
