@@ -25,19 +25,11 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
         width, height = image.size
         logger.info(f"OCR Request: Image size {width}x{height}")
 
-        # 1. Resize if too small (upscaling helps Tesseract detect characters)
-        if width < 1000:
-            scale_factor = 2 if width > 500 else 3
-            new_size = (width * scale_factor, height * scale_factor)
-            # Use BICUBIC instead of LANCZOS for faster processing (~1.9x speedup)
-            # while maintaining sufficient quality for OCR
-            image = image.resize(new_size, Image.Resampling.BICUBIC)
-            logger.info(f"Resized image to {new_size}")
-
-        # 2. Convert to grayscale for better OCR accuracy
+        # 1. Convert to grayscale for better OCR accuracy
+        # Doing this first speeds up subsequent operations (resize, stats) by working on 1 channel instead of 3.
         image = image.convert('L')
 
-        # 3. Detect Dark Mode and Invert
+        # 2. Detect Dark Mode and Invert
         # Calculate mean brightness
         stat = ImageStat.Stat(image)
         avg_brightness = stat.mean[0]
@@ -47,6 +39,15 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
             image = ImageOps.invert(image)
         else:
             logger.info(f"Image is light (avg={avg_brightness:.2f}), skipping inversion.")
+
+        # 3. Resize if too small (upscaling helps Tesseract detect characters)
+        if width < 1000:
+            scale_factor = 2 if width > 500 else 3
+            new_size = (width * scale_factor, height * scale_factor)
+            # Use BICUBIC instead of LANCZOS for faster processing (~1.9x speedup)
+            # while maintaining sufficient quality for OCR
+            image = image.resize(new_size, Image.Resampling.BICUBIC)
+            logger.info(f"Resized image to {new_size}")
 
         # 4. Enhance Contrast
         # Auto-contrast is often better than fixed factor for varying lighting conditions
