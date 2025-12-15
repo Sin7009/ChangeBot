@@ -71,10 +71,15 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
 @main_router.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        "Привет! Я бот-конвертер валют.\n\n"
-        "Просто напиши мне сумму и валюту (например, '100 usd', '5к евро', 'косарь'), "
-        "и я переведу её.\n\n"
-        "Настройки валют: /settings"
+        "👋 <b>Привет! Я бот-конвертер валют.</b>\n\n"
+        "Просто напиши мне сумму и валюту, и я переведу её.\n\n"
+        "<b>Примеры:</b>\n"
+        "• <code>100 usd</code>\n"
+        "• <code>5к евро</code>\n"
+        "• <code>косарь</code>\n\n"
+        "⚙️ Настройки: /settings\n"
+        "📈 Графики: /chart USD",
+        parse_mode="HTML"
     )
 
 @main_router.message(Command("settings"))
@@ -182,6 +187,8 @@ async def handle_photo(message: Message, session: AsyncSession):
 
     if is_private:
         status_msg = await message.answer("🔍 Распознаю текст...")
+        # Show 'typing' action to indicate background processing
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
     try:
         # Get the largest photo (last in list)
