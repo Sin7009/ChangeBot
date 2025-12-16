@@ -77,6 +77,11 @@ class CurrencyRecognizer:
         "ssd", "hdd", "mhz", "ghz", "ddr",
     }
 
+    # Sort stop words by length to ensure longest matches first in regex
+    _STOP_WORDS_SORTED = sorted(STOP_WORDS, key=len, reverse=True)
+    # Pre-compile the stop words regex for single-pass replacement
+    _STOP_WORDS_REGEX = re.compile(r'\b(?:' + '|'.join(map(re.escape, _STOP_WORDS_SORTED)) + r')\b')
+
     # Dynamic regex parts
     # Suffix style: k, m, к, м (followed by non-letters)
     _SUFFIX_REGEX = r'[kкmм](?![a-zA-Zа-яА-Я])'
@@ -148,9 +153,8 @@ class CurrencyRecognizer:
 
         # Удаляем стоп-слова, чтобы они не мешали парсингу (например, "14 PRO")
         text_cleaned = text.lower()
-        for word in cls.STOP_WORDS:
-            # Заменяем слово на пробел, только если оно стоит отдельно (окружено границами \b)
-            text_cleaned = re.sub(r'\b' + re.escape(word) + r'\b', ' ', text_cleaned)
+        # Optimization: Use pre-compiled regex for single-pass replacement
+        text_cleaned = cls._STOP_WORDS_REGEX.sub(' ', text_cleaned)
 
         # Pattern 1: Number [multiplier] Currency
         for match in cls.PATTERN_START.finditer(text_cleaned):
@@ -169,7 +173,8 @@ class CurrencyRecognizer:
             # Check if currency_raw is actually a special slang amount (like "косарь" used as currency placeholder)
             if currency_raw in cls.MULTIPLIER_MAP and currency_raw not in cls.SLANG_MAP:
                 # Logic for "5 косарей" where "косарей" acts as multiplier AND implies RUB
-                multiplier = cls.MULTIPLIER_MAP[currency_raw]
+                # FIX: Multiply instead of overwrite to handle chained multipliers (e.g. "10k косарей" -> 10 * 1000 * 1000)
+                multiplier *= cls.MULTIPLIER_MAP[currency_raw]
                 if currency_raw in ["косарь", "косаря", "косарей", "лям", "лямов", "тонна"]:
                     currency_code = "RUB"
                 else:
