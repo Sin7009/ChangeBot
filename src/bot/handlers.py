@@ -13,21 +13,11 @@ from src.services.rates import rates_service
 from src.services.charts import generate_chart
 from src.services.ocr import image_to_text
 from src.database.dal import get_chat_settings, toggle_currency
-from src.bot.keyboards import settings_keyboard
+from src.bot.keyboards import settings_keyboard, CURRENCY_FLAGS
 
 logger = logging.getLogger(__name__)
 
 main_router = Router()
-
-# Helper for flags
-CURRENCY_FLAGS = {
-    "USD": "🇺🇸",
-    "EUR": "🇪🇺",
-    "RUB": "🇷🇺",
-    "GBP": "🇬🇧",
-    "CNY": "🇨🇳",
-    "KZT": "🇰🇿",
-}
 
 def get_flag(currency: str) -> str:
     return CURRENCY_FLAGS.get(currency, "💰")
