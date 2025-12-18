@@ -77,6 +77,12 @@ class CurrencyRecognizer:
         "ssd", "hdd", "mhz", "ghz", "ddr",
     }
 
+    # Compiled pattern for stop words removal (much faster than iterating)
+    # Sort by length descending to match longest words first
+    _STOP_WORDS_PATTERN = re.compile(
+        r'\b(?:' + '|'.join(map(re.escape, sorted(STOP_WORDS, key=len, reverse=True))) + r')\b'
+    )
+
     # Dynamic regex parts
     # Suffix style: k, m, к, м (followed by non-letters)
     _SUFFIX_REGEX = r'[kкmм](?![a-zA-Zа-яА-Я])'
@@ -147,10 +153,7 @@ class CurrencyRecognizer:
         results = []
 
         # Удаляем стоп-слова, чтобы они не мешали парсингу (например, "14 PRO")
-        text_cleaned = text.lower()
-        for word in cls.STOP_WORDS:
-            # Заменяем слово на пробел, только если оно стоит отдельно (окружено границами \b)
-            text_cleaned = re.sub(r'\b' + re.escape(word) + r'\b', ' ', text_cleaned)
+        text_cleaned = cls._STOP_WORDS_PATTERN.sub(' ', text.lower())
 
         # Pattern 1: Number [multiplier] Currency
         for match in cls.PATTERN_START.finditer(text_cleaned):
