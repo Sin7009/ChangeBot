@@ -23,11 +23,7 @@ def get_currency_label(currency: str) -> str:
 
 def settings_keyboard(chat_id: int, current_currencies: list[str]) -> InlineKeyboardMarkup:
     # Supported currencies to toggle
-    # We can expand this list later.
-    SUPPORTED_CURRENCIES = [
-        "USD", "EUR", "RUB", "GBP", "CNY", "KZT",
-        "BTC", "ETH", "TON", "USDT"
-    ]
+    SUPPORTED_CURRENCIES = list(CURRENCY_FLAGS.keys())
 
     builder = InlineKeyboardBuilder()
 
