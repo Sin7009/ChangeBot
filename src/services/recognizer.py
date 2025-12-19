@@ -47,6 +47,13 @@ class CurrencyRecognizer:
         "usdt": "USDT", "tether": "USDT"
     }
 
+    # OPTIMIZATION: Pre-populate SLANG_MAP with valid currencies (lowercase) to avoid
+    # redundant length/alpha checks and upper() calls in _validate_currency_code.
+    # This makes validation an O(1) dict lookup for all valid codes.
+    for currency in VALID_CURRENCIES:
+        if currency.lower() not in SLANG_MAP:
+            SLANG_MAP[currency.lower()] = currency
+
     # Multiplier mapping
     MULTIPLIER_MAP: Dict[str, float] = {
         "k": 1000.0,
@@ -124,18 +131,10 @@ class CurrencyRecognizer:
         Validates and returns a currency code from raw input.
         Returns the currency code if valid, None otherwise.
         """
-        # Check if it's in the slang map first
-        currency_code = cls.SLANG_MAP.get(currency_raw)
-        if currency_code:
-            return currency_code
-        
-        # Only accept 3-letter codes that are in the valid currencies whitelist
-        if len(currency_raw) == 3 and currency_raw.isalpha():
-            currency_code = currency_raw.upper()
-            if currency_code in cls.VALID_CURRENCIES:
-                return currency_code
-        
-        return None
+        # Optimized validation: Direct O(1) lookup since SLANG_MAP is pre-populated
+        # with all valid currencies (lowercased) and slang terms.
+        # Use lower() to ensure robustness if called with mixed/upper case input directly.
+        return cls.SLANG_MAP.get(currency_raw.lower())
 
     @classmethod
     def parse(cls, text: str, strict_mode: bool = False) -> List[Price]:
