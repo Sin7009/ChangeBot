@@ -172,7 +172,8 @@ class CurrencyRecognizer:
             # Check if currency_raw is actually a special slang amount (like "косарь" used as currency placeholder)
             if currency_raw in cls.MULTIPLIER_MAP and currency_raw not in cls.SLANG_MAP:
                 # Logic for "5 косарей" where "косарей" acts as multiplier AND implies RUB
-                multiplier = cls.MULTIPLIER_MAP[currency_raw]
+                # FIX: Multiply instead of overwrite to handle chained multipliers (e.g. "10k косарей" -> 10 * 1000 * 1000)
+                multiplier *= cls.MULTIPLIER_MAP[currency_raw]
                 if currency_raw in ["косарь", "косаря", "косарей", "лям", "лямов", "тонна"]:
                     currency_code = "RUB"
                 else:
