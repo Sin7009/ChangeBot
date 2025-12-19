@@ -77,10 +77,11 @@ class CurrencyRecognizer:
         "ssd", "hdd", "mhz", "ghz", "ddr",
     }
 
-    # Sort stop words by length to ensure longest matches first in regex
-    _STOP_WORDS_SORTED = sorted(STOP_WORDS, key=len, reverse=True)
-    # Pre-compile the stop words regex for single-pass replacement
-    _STOP_WORDS_REGEX = re.compile(r'\b(?:' + '|'.join(map(re.escape, _STOP_WORDS_SORTED)) + r')\b')
+    # Pre-compile the regex for stop words removal
+    # Sort by length descending to handle potential prefix issues correctly
+    _STOP_WORDS_REGEX = re.compile(
+        r'\b(?:' + '|'.join(map(re.escape, sorted(STOP_WORDS, key=len, reverse=True))) + r')\b'
+    )
 
     # Dynamic regex parts
     # Suffix style: k, m, к, м (followed by non-letters)
@@ -153,7 +154,6 @@ class CurrencyRecognizer:
 
         # Удаляем стоп-слова, чтобы они не мешали парсингу (например, "14 PRO")
         text_cleaned = text.lower()
-        # Optimization: Use pre-compiled regex for single-pass replacement
         text_cleaned = cls._STOP_WORDS_REGEX.sub(' ', text_cleaned)
 
         # Pattern 1: Number [multiplier] Currency
