@@ -141,6 +141,15 @@ async def cmd_chart(message: Message, command: CommandObject):
 @main_router.callback_query(F.data.startswith("toggle_"))
 async def on_toggle_currency(callback: CallbackQuery, session: AsyncSession):
     currency = callback.data.split("_")[1]
+
+    # UX Improvement: Prevent disabling the last currency to avoid "broken" state
+    settings = await get_chat_settings(session, callback.message.chat.id)
+    current_currencies = settings.target_currencies
+
+    if currency in current_currencies and len(current_currencies) == 1:
+        await callback.answer("⚠️ Нельзя отключить последнюю валюту!", show_alert=True)
+        return
+
     new_currencies = await toggle_currency(session, callback.message.chat.id, currency)
 
     keyboard = settings_keyboard(callback.message.chat.id, new_currencies)
