@@ -4,6 +4,10 @@ from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessag
 
 from src.services.recognizer import recognize
 from src.services.rates import rates_service
+from src.bot.keyboards import CURRENCY_FLAGS
+
+def get_flag(currency: str) -> str:
+    return CURRENCY_FLAGS.get(currency, "💰")
 
 inline_router = Router()
 
@@ -32,7 +36,11 @@ async def inline_query_handler(inline_query: InlineQuery):
                 continue
 
             formatted_val = f"{converted_amount:.2f}".rstrip("0").rstrip(".")
-            result_text = f"{price.amount:g} {price.currency} ≈ {formatted_val} {target}"
+
+            src_flag = get_flag(price.currency)
+            target_flag = get_flag(target)
+
+            result_text = f"{src_flag} {price.amount:g} {price.currency} ≈ {target_flag} {formatted_val} {target}"
 
             # Unique ID for the result
             result_id = hashlib.md5(result_text.encode()).hexdigest()

@@ -1,6 +1,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+# Centralized flags mapping for UI consistency
 CURRENCY_FLAGS = {
     "USD": "🇺🇸",
     "EUR": "🇪🇺",
@@ -11,8 +12,14 @@ CURRENCY_FLAGS = {
     "BTC": "₿",
     "ETH": "Ξ",
     "TON": "💎",
-    "USDT": "₮"
+    "USDT": "₮",
+    "TRY": "🇹🇷",  # Included for completeness if added to supported list
 }
+
+def get_currency_label(currency: str) -> str:
+    """Returns the currency code prefixed with its flag/icon."""
+    flag = CURRENCY_FLAGS.get(currency, "💰")
+    return f"{flag} {currency}"
 
 def settings_keyboard(chat_id: int, current_currencies: list[str]) -> InlineKeyboardMarkup:
     # Supported currencies to toggle
@@ -22,8 +29,13 @@ def settings_keyboard(chat_id: int, current_currencies: list[str]) -> InlineKeyb
 
     for currency in SUPPORTED_CURRENCIES:
         is_active = currency in current_currencies
-        flag = CURRENCY_FLAGS.get(currency, "")
-        text = f"✅ {flag} {currency}" if is_active else f"❌ {flag} {currency}"
+        # Get flag + code
+        label = get_currency_label(currency)
+
+        # Add checkmark/cross
+        status_icon = "✅" if is_active else "❌"
+        text = f"{status_icon} {label}"
+
         callback_data = f"toggle_{currency}"
 
         builder.button(text=text, callback_data=callback_data)
