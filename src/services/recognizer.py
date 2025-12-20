@@ -126,17 +126,6 @@ class CurrencyRecognizer:
         return float(amount_str.replace(',', '.'))
 
     @classmethod
-    def _validate_currency_code(cls, currency_raw: str) -> Optional[str]:
-        """
-        Validates and returns a currency code from raw input.
-        Returns the currency code if valid, None otherwise.
-        """
-        # Optimized validation: Direct O(1) lookup since SLANG_MAP is pre-populated
-        # with all valid currencies (lowercased) and slang terms.
-        # Use lower() to ensure robustness if called with mixed/upper case input directly.
-        return cls.SLANG_MAP.get(currency_raw.lower())
-
-    @classmethod
     def parse(cls, text: str, strict_mode: bool = False) -> List[Price]:
         """
         Parses text to identify currency amounts.
@@ -178,7 +167,9 @@ class CurrencyRecognizer:
                 else:
                     continue 
             else:
-                currency_code = cls._validate_currency_code(currency_raw)
+                # Optimization: Direct lookup (O(1)) instead of method call.
+                # currency_raw is already lowercase from text_cleaned.
+                currency_code = cls.SLANG_MAP.get(currency_raw)
                 if not currency_code:
                     continue 
 
@@ -194,7 +185,8 @@ class CurrencyRecognizer:
                 if currency_raw not in cls.SYMBOLS:
                     continue
 
-            currency_code = cls._validate_currency_code(currency_raw)
+            # Optimization: Direct lookup
+            currency_code = cls.SLANG_MAP.get(currency_raw)
             if not currency_code:
                 continue
 
