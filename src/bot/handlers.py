@@ -89,7 +89,13 @@ async def cmd_chart(message: Message, command: CommandObject):
         await message.answer("Использование: /chart <код_валюты> (например, USD)")
         return
 
-    currency = args.strip().upper()
+    # Input validation: only allow alphanumeric characters to prevent injection
+    currency_raw = args.strip()
+    if not currency_raw.isalnum() or len(currency_raw) > 10:
+        await message.answer("⚠️ Неверный формат валюты. Используйте код валюты (например, USD, EUR)")
+        return
+    
+    currency = currency_raw.upper()
 
     # Map common currencies to Yahoo Finance symbols relative to RUB
     # We default to showing X/RUB pairs.
@@ -128,15 +134,25 @@ async def cmd_chart(message: Message, command: CommandObject):
     # Ideally should use run_in_executor.
     loop = asyncio.get_running_loop()
 
-    # Run yfinance/matplotlib in executor to avoid blocking event loop
-    buf = await loop.run_in_executor(None, generate_chart, ticker)
+    try:
+        # Run yfinance/matplotlib in executor to avoid blocking event loop
+        # Add timeout to prevent hanging
+        buf = await asyncio.wait_for(
+            loop.run_in_executor(None, generate_chart, ticker),
+            timeout=30.0
+        )
 
-    if buf:
-        await status_msg.delete()
-        photo = BufferedInputFile(buf.read(), filename=f"chart_{currency}.png")
-        await message.reply_photo(photo, caption=f"График {currency}/RUB за месяц")
-    else:
-        await status_msg.edit_text("Не удалось получить данные для графика. Возможно, тикер не найден.")
+        if buf:
+            await status_msg.delete()
+            photo = BufferedInputFile(buf.read(), filename=f"chart_{currency}.png")
+            await message.reply_photo(photo, caption=f"График {currency}/RUB за месяц")
+        else:
+            await status_msg.edit_text("Не удалось получить данные для графика. Возможно, тикер не найден.")
+    except asyncio.TimeoutError:
+        await status_msg.edit_text("⏱️ Превышено время ожидания. Попробуйте позже.")
+    except Exception as e:
+        logger.error(f"Error generating chart: {e}", exc_info=True)
+        await status_msg.edit_text("❌ Произошла ошибка при генерации графика.")
 
 @main_router.callback_query(F.data.startswith("toggle_"))
 async def on_toggle_currency(callback: CallbackQuery, session: AsyncSession):
@@ -192,15 +208,39 @@ async def handle_photo(message: Message, session: AsyncSession):
     try:
         # Get the largest photo (last in list)
         photo = message.photo[-1]
+        
+        # Validate photo size (max 20MB to prevent abuse)
+        MAX_PHOTO_SIZE = 20 * 1024 * 1024  # 20MB
+        if photo.file_size and photo.file_size > MAX_PHOTO_SIZE:
+            if is_private and status_msg:
+                await status_msg.edit_text("⚠️ Изображение слишком большое (макс. 20MB)")
+            return
 
-        # Download photo
+        # Download photo with timeout
         file_io = io.BytesIO()
-        await message.bot.download(photo, destination=file_io)
+        try:
+            await asyncio.wait_for(
+                message.bot.download(photo, destination=file_io),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            if is_private and status_msg:
+                await status_msg.edit_text("⏱️ Превышено время загрузки изображения")
+            return
+            
         image_bytes = file_io.getvalue()
 
-        # Run OCR in executor
+        # Run OCR in executor with timeout
         loop = asyncio.get_running_loop()
-        text = await loop.run_in_executor(None, image_to_text, image_bytes)
+        try:
+            text = await asyncio.wait_for(
+                loop.run_in_executor(None, image_to_text, image_bytes),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            if is_private and status_msg:
+                await status_msg.edit_text("⏱️ Превышено время распознавания текста")
+            return
 
         if not text:
             if is_private and status_msg:

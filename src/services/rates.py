@@ -11,6 +11,7 @@ class RatesService:
 
     # Cache configuration
     CACHE_TTL = 3600  # 1 hour
+    FETCH_TIMEOUT = 30  # 30 seconds timeout for API calls
 
     def __new__(cls):
         if cls._instance is None:
@@ -19,15 +20,20 @@ class RatesService:
             cls._instance.base_currency = "USD"
             cls._instance.last_updated = 0.0
             cls._instance._lock = asyncio.Lock()
+            cls._instance._consecutive_failures = 0
+            cls._instance.MAX_CONSECUTIVE_FAILURES = 3
             # No API key needed for yfinance
 
         return cls._instance
 
     async def _fetch_rates(self) -> Optional[Dict[str, float]]:
         """
-        Fetches rates using yfinance.
+        Fetches rates using yfinance with timeout and error handling.
         We want all rates relative to USD (USD -> XXX).
         So rate = how many XXX per 1 USD.
+        
+        Returns:
+            Dict of currency rates or None on failure
         """
 
         # Map: Currency Code -> (Ticker, Is_Inverse)
@@ -57,7 +63,16 @@ class RatesService:
                 data = yf.download(tickers_list, period="5d", group_by='ticker', progress=False)
                 return data
 
-            data = await loop.run_in_executor(None, fetch_sync)
+            # Add timeout to prevent hanging on slow API responses
+            try:
+                data = await asyncio.wait_for(
+                    loop.run_in_executor(None, fetch_sync),
+                    timeout=self.FETCH_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout ({self.FETCH_TIMEOUT}s) fetching rates from yfinance")
+                self._consecutive_failures += 1
+                return None
 
             new_rates = {"USD": 1.0}
 
@@ -79,7 +94,9 @@ class RatesService:
 
                     rate = float(val)
                     if is_inverse:
-                        if rate == 0: continue
+                        if rate == 0: 
+                            logger.warning(f"Zero rate for {ticker}, skipping")
+                            continue
                         rate = 1.0 / rate
 
                     new_rates[code] = rate
@@ -88,15 +105,39 @@ class RatesService:
                     logger.warning(f"Failed to extract rate for {code} ({ticker}): {e}")
                     continue
 
+            # Reset failure counter on success
+            if len(new_rates) > 1:  # More than just USD
+                self._consecutive_failures = 0
+            
             return new_rates
 
+        except asyncio.TimeoutError:
+            # Already handled above
+            return None
         except Exception as e:
-            logger.error(f"Error fetching rates from yfinance: {e}")
+            logger.error(f"Error fetching rates from yfinance: {e}", exc_info=True)
+            self._consecutive_failures += 1
             return None
 
     async def get_rates(self) -> Dict[str, float]:
-        """Returns rates, updating from API if cache is stale."""
+        """
+        Returns rates, updating from API if cache is stale.
+        
+        Implements exponential backoff if consecutive failures occur to avoid
+        hammering a failing API.
+        
+        Returns:
+            Dict of currency rates (may be stale if API is down)
+        """
         now = time.time()
+        
+        # Implement exponential backoff on consecutive failures
+        if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
+            backoff_time = min(3600, 60 * (2 ** (self._consecutive_failures - self.MAX_CONSECUTIVE_FAILURES)))
+            if now - self.last_updated < backoff_time:
+                logger.warning(f"Skipping rate update due to consecutive failures (backoff: {backoff_time}s)")
+                return self.rates
+        
         if not self.rates or (now - self.last_updated > self.CACHE_TTL):
             # Use lock to prevent multiple concurrent API calls (cache stampede)
             async with self._lock:
