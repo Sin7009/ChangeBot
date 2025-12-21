@@ -121,6 +121,14 @@ class CurrencyRecognizer:
         "лямов": (1000000.0, "RUB"),
     }
 
+    # Compiled pattern for standalone slang words
+    # Matches words from SLANG_AMOUNT_CURRENCY if not preceded by a digit
+    STANDALONE_SLANG_PATTERN = re.compile(
+        r'(?<!\d)\s*(?<!\d\s)(' +
+        '|'.join(map(re.escape, sorted(SLANG_AMOUNT_CURRENCY.keys(), key=len, reverse=True))) +
+        r')\b'
+    )
+
     @staticmethod
     def _normalize_amount(amount_str: str) -> float:
         return float(amount_str.replace(',', '.'))
@@ -198,8 +206,7 @@ class CurrencyRecognizer:
 
         # Standalone slang words (Ignore in strict mode? Usually yes, as they are words not signs)
         if not strict_mode:
-            standalone_slang = re.compile(r'(?<!\d)\s*(?<!\d\s)(косарь|косаря|косарей|лям|лямов)\b')
-            for match in standalone_slang.finditer(text_cleaned):
+            for match in cls.STANDALONE_SLANG_PATTERN.finditer(text_cleaned):
                 word = match.group(1)
                 if word in cls.SLANG_AMOUNT_CURRENCY:
                     val, curr = cls.SLANG_AMOUNT_CURRENCY[word]
