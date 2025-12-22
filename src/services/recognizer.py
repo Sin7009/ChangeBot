@@ -129,8 +129,12 @@ class CurrencyRecognizer:
         r')\b'
     )
 
-    @staticmethod
-    def _normalize_amount(amount_str: str) -> float:
+    # Compiled pattern for detecting thousands separators (e.g., "1,000")
+    # Matches comma followed by exactly 3 digits and (end of string or non-digit)
+    THOUSANDS_SEPARATOR_PATTERN = re.compile(r',\d{3}(?:\D|$)')
+
+    @classmethod
+    def _normalize_amount(cls, amount_str: str) -> float:
         """
         Normalize amount string to float, handling both comma as decimal separator
         and comma as thousands separator.
@@ -144,10 +148,7 @@ class CurrencyRecognizer:
         # it's likely a thousands separator (e.g., "1,000" or "10,000")
         # Otherwise, treat it as a decimal separator (e.g., "1,5" -> 1.5)
         
-        import re
-        # Check if this looks like thousands separator:
-        # comma followed by exactly 3 digits and (end of string or non-digit)
-        if re.search(r',\d{3}(?:\D|$)', amount_str):
+        if cls.THOUSANDS_SEPARATOR_PATTERN.search(amount_str):
             # Remove comma as thousands separator
             return float(amount_str.replace(',', ''))
         else:
