@@ -84,6 +84,9 @@ class CurrencyRecognizer:
         "ssd", "hdd", "mhz", "ghz", "ddr",
     }
 
+    # Slang terms that imply RUB when used as multipliers
+    IMPLIED_RUBLE_TOKENS = {"косарь", "косаря", "косарей", "лям", "лямов", "тонна"}
+
     # Compiled pattern for stop words removal (much faster than iterating)
     # Sort by length descending to match longest words first
     _STOP_WORDS_PATTERN = re.compile(
@@ -100,17 +103,28 @@ class CurrencyRecognizer:
     # Combined Multiplier Regex: (Suffix | Word)
     MULTIPLIER_REGEX = f'(?:{_SUFFIX_REGEX}|{_WORD_REGEX})'
 
+    # OPTIMIZATION: Construct whitelist of currency tokens to avoid false positives.
+    # Instead of matching [a-zA-Z]+ and checking dict in Python, we match only valid tokens in regex.
+    # This prevents the loop from triggering on "100 apples".
+    # Note: text is lowercased before matching, so these keys (lowercase) handle all cases.
+    _CURRENCY_TOKENS = set(SLANG_MAP.keys())
+    # Add multiplier-as-currency tokens (e.g. "косарь", "лям")
+    _CURRENCY_TOKENS.update(IMPLIED_RUBLE_TOKENS)
+    # Note: SYMBOLS are already in SLANG_MAP keys, so they are included here.
+
+    _CURRENCY_TOKEN_REGEX = r'(?:' + '|'.join(map(re.escape, sorted(_CURRENCY_TOKENS, key=len, reverse=True))) + r')'
+
     # Regex to capture amount and currency/slang
     # Group 1: Amount
     # Group 2: Multiplier (optional)
     # Group 3: Currency
     PATTERN_START = re.compile(
-        rf'(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?\s*([$€£¥₽₸₿]|[a-zA-Zа-яА-Я]+)'
+        rf'(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX})'
     )
     
     # Currency Number [multiplier]
     PATTERN_END = re.compile(
-        rf'([$€£¥₽₸₿]|[a-zA-Zа-яА-Я]+)\s*(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?'
+        rf'({_CURRENCY_TOKEN_REGEX})\s*(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?'
     )
 
     SLANG_AMOUNT_CURRENCY = {
@@ -192,7 +206,7 @@ class CurrencyRecognizer:
                 # Logic for "5 косарей" where "косарей" acts as multiplier AND implies RUB
                 # FIX: Multiply instead of overwrite to handle chained multipliers (e.g. "10k косарей" -> 10 * 1000 * 1000)
                 multiplier *= cls.MULTIPLIER_MAP[currency_raw]
-                if currency_raw in ["косарь", "косаря", "косарей", "лям", "лямов", "тонна"]:
+                if currency_raw in cls.IMPLIED_RUBLE_TOKENS:
                     currency_code = "RUB"
                 else:
                     continue 
