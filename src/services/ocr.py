@@ -40,7 +40,16 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
         else:
             logger.info(f"Image is light (avg={avg_brightness:.2f}), skipping inversion.")
 
-        # 3. Resize if too small (upscaling helps Tesseract detect characters)
+        # 3. Enhance Contrast
+        # Moved before resize for performance (processing fewer pixels).
+        # Auto-contrast is often better than fixed factor for varying lighting conditions
+        image = ImageOps.autocontrast(image, cutoff=2) # cutoff ignores top/bottom 2% of histogram
+
+        # Additional fixed contrast boost can still help separate faint text from background
+        enhancer = ImageEnhance.Contrast(image)
+        image = enhancer.enhance(1.5)
+
+        # 4. Resize if too small (upscaling helps Tesseract detect characters)
         if width < 1000:
             scale_factor = 2 if width > 500 else 3
             new_size = (width * scale_factor, height * scale_factor)
@@ -49,15 +58,8 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
             image = image.resize(new_size, Image.Resampling.BICUBIC)
             logger.info(f"Resized image to {new_size}")
 
-        # 4. Enhance Contrast
-        # Auto-contrast is often better than fixed factor for varying lighting conditions
-        image = ImageOps.autocontrast(image, cutoff=2) # cutoff ignores top/bottom 2% of histogram
-
-        # Additional fixed contrast boost can still help separate faint text from background
-        enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(1.5)
-
         # 5. Sharpen (helps define edges for Tesseract)
+        # Must be done AFTER resize to counteract interpolation blur
         sharpness = ImageEnhance.Sharpness(image)
         image = sharpness.enhance(2.0)
 
