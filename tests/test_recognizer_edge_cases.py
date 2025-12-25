@@ -92,3 +92,41 @@ def test_multiple_currencies_in_sentence():
     assert "USD" in currencies_found
     assert "EUR" in currencies_found
     assert "RUB" in currencies_found
+
+def test_overlapping_false_positive():
+    """
+    Test that '100 rub 200' is parsed as ONLY '100 rub' and not '100 rub' AND '200 rub'.
+    This was a false positive where the second number was matched by a pattern looking for currency-first,
+    using the SAME currency token that had already been consumed by the first match.
+    """
+    # "100 rub 200" -> 100 RUB. "200" should be ignored as it has no currency.
+    res = recognize("100 rub 200")
+    assert len(res) == 1
+    assert res[0].amount == 100.0
+    assert res[0].currency == "RUB"
+
+
+def test_overlapping_valid_sequence():
+    """
+    Test that '100 rub 200 usd' is parsed correctly as two prices.
+    """
+    res = recognize("100 rub 200 usd")
+    assert len(res) == 2
+    assert res[0].amount == 100.0
+    assert res[0].currency == "RUB"
+    assert res[1].amount == 200.0
+    assert res[1].currency == "USD"
+
+
+def test_reverse_order_sequence():
+    """
+    Test that 'rub 100 usd 200' is parsed correctly.
+    """
+    res = recognize("rub 100 usd 200")
+    assert len(res) == 2
+    # rub 100 -> 100 RUB
+    # usd 200 -> 200 USD
+    assert res[0].amount == 100.0
+    assert res[0].currency == "RUB"
+    assert res[1].amount == 200.0
+    assert res[1].currency == "USD"
