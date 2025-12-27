@@ -143,6 +143,18 @@ class CurrencyRecognizer:
         r')\b'
     )
 
+    # OPTIMIZATION: Combined regex for single-pass scanning
+    # Combines PATTERN_START, PATTERN_END, and STANDALONE_SLANG_PATTERN
+    # Groups:
+    # 1,2,3: Start Pattern (Amount, Multiplier, Currency)
+    # 4,5,6: End Pattern (Currency, Amount, Multiplier)
+    # 7: Standalone Slang
+    COMBINED_PATTERN = re.compile(
+        rf'(?:(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX}))|'
+        rf'(?:({_CURRENCY_TOKEN_REGEX})\s*(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?)|'
+        rf'(?:(?<!\d)\s*(?<!\d\s)(' + '|'.join(map(re.escape, sorted(SLANG_AMOUNT_CURRENCY.keys(), key=len, reverse=True))) + r')\b)'
+    )
+
     # Compiled pattern for detecting thousands separators (e.g., "1,000")
     # Matches comma followed by exactly 3 digits and (end of string or non-digit)
     THOUSANDS_SEPARATOR_PATTERN = re.compile(r',\d{3}(?:\D|$)')
@@ -187,63 +199,60 @@ class CurrencyRecognizer:
         # Удаляем стоп-слова, чтобы они не мешали парсингу (например, "14 PRO")
         text_cleaned = cls._STOP_WORDS_PATTERN.sub(' ', text.lower())
 
-        # Pattern 1: Number [multiplier] Currency
-        for match in cls.PATTERN_START.finditer(text_cleaned):
-            amount_str, multiplier_str, currency_raw = match.group(1), match.group(2), match.group(3)
-            amount = cls._normalize_amount(amount_str)
-            
-            # Strict mode check
-            if strict_mode:
-                if currency_raw not in cls.SYMBOLS:
-                    continue
+        # Optimization: Single pass using combined regex
+        for match in cls.COMBINED_PATTERN.finditer(text_cleaned):
+            # Check which group matched
+            # Groups 1-3: Start Pattern (Amount, Multiplier, Currency)
+            if match.group(1):
+                amount_str, multiplier_str, currency_raw = match.group(1), match.group(2), match.group(3)
+                amount = cls._normalize_amount(amount_str)
 
-            multiplier = 1.0
-            if multiplier_str:
-                multiplier = cls.MULTIPLIER_MAP.get(multiplier_str, 1.0)
+                # Strict mode check
+                if strict_mode:
+                    if currency_raw not in cls.SYMBOLS:
+                        continue
 
-            # Check if currency_raw is actually a special slang amount (like "косарь" used as currency placeholder)
-            if currency_raw in cls.MULTIPLIER_MAP and currency_raw not in cls.SLANG_MAP:
-                # Logic for "5 косарей" where "косарей" acts as multiplier AND implies RUB
-                # FIX: Multiply instead of overwrite to handle chained multipliers (e.g. "10k косарей" -> 10 * 1000 * 1000)
-                multiplier *= cls.MULTIPLIER_MAP[currency_raw]
-                if currency_raw in cls.IMPLIED_RUBLE_TOKENS:
-                    currency_code = "RUB"
+                multiplier = 1.0
+                if multiplier_str:
+                    multiplier = cls.MULTIPLIER_MAP.get(multiplier_str, 1.0)
+
+                # Check if currency_raw is actually a special slang amount
+                if currency_raw in cls.MULTIPLIER_MAP and currency_raw not in cls.SLANG_MAP:
+                    multiplier *= cls.MULTIPLIER_MAP[currency_raw]
+                    if currency_raw in cls.IMPLIED_RUBLE_TOKENS:
+                        currency_code = "RUB"
+                    else:
+                        continue
                 else:
-                    continue 
-            else:
-                # Optimization: Direct lookup (O(1)) instead of method call.
-                # currency_raw is already lowercase from text_cleaned.
+                    currency_code = cls.SLANG_MAP.get(currency_raw)
+                    if not currency_code:
+                        continue
+
+                results.append(Price(amount=amount * multiplier, currency=currency_code))
+
+            # Groups 4-6: End Pattern (Currency, Amount, Multiplier)
+            elif match.group(4):
+                currency_raw, amount_str, multiplier_str = match.group(4), match.group(5), match.group(6)
+                amount = cls._normalize_amount(amount_str)
+
+                # Strict mode check
+                if strict_mode:
+                    if currency_raw not in cls.SYMBOLS:
+                        continue
+
                 currency_code = cls.SLANG_MAP.get(currency_raw)
                 if not currency_code:
-                    continue 
-
-            results.append(Price(amount=amount * multiplier, currency=currency_code))
-
-        # Pattern 2: Currency Number [multiplier]
-        for match in cls.PATTERN_END.finditer(text_cleaned):
-            currency_raw, amount_str, multiplier_str = match.group(1), match.group(2), match.group(3)
-            amount = cls._normalize_amount(amount_str)
-
-            # Strict mode check
-            if strict_mode:
-                if currency_raw not in cls.SYMBOLS:
                     continue
 
-            # Optimization: Direct lookup
-            currency_code = cls.SLANG_MAP.get(currency_raw)
-            if not currency_code:
-                continue
+                multiplier = 1.0
+                if multiplier_str:
+                    multiplier = cls.MULTIPLIER_MAP.get(multiplier_str, 1.0)
 
-            multiplier = 1.0
-            if multiplier_str:
-                multiplier = cls.MULTIPLIER_MAP.get(multiplier_str, 1.0)
+                results.append(Price(amount=amount * multiplier, currency=currency_code))
 
-            results.append(Price(amount=amount * multiplier, currency=currency_code))
-
-        # Standalone slang words (Ignore in strict mode? Usually yes, as they are words not signs)
-        if not strict_mode:
-            for match in cls.STANDALONE_SLANG_PATTERN.finditer(text_cleaned):
-                word = match.group(1)
+            # Group 7: Standalone Slang
+            elif match.group(7) and not strict_mode:
+                word = match.group(7)
                 if word in cls.SLANG_AMOUNT_CURRENCY:
                     val, curr = cls.SLANG_AMOUNT_CURRENCY[word]
                     results.append(Price(amount=val, currency=curr))
