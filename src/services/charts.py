@@ -1,20 +1,61 @@
 import io
 import logging
+import time
+import threading
 import matplotlib
 # Указываем, что у нас нет дисплея. Это обязательно для сервера.
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import yfinance as yf
-from typing import Optional
+from typing import Optional, Dict, Tuple
 
 logger = logging.getLogger(__name__)
+
+class ChartCache:
+    """
+    Thread-safe in-memory cache for generated chart images.
+    Stores raw bytes to avoid stateful BytesIO issues.
+    """
+    def __init__(self, ttl_seconds: int = 300):
+        self._cache: Dict[Tuple[str, str], Tuple[float, bytes]] = {}
+        self._lock = threading.Lock()
+        self._ttl = ttl_seconds
+
+    def get(self, pair: str, period: str) -> Optional[bytes]:
+        key = (pair, period)
+        with self._lock:
+            if key in self._cache:
+                timestamp, data = self._cache[key]
+                if time.time() - timestamp < self._ttl:
+                    logger.debug(f"Cache hit for chart {key}")
+                    return data
+                else:
+                    logger.debug(f"Cache expired for chart {key}")
+                    del self._cache[key]
+        return None
+
+    def set(self, pair: str, period: str, data: bytes):
+        key = (pair, period)
+        with self._lock:
+            # Clean up old entries occasionally?
+            # For now, simple dict is fine as volume is low.
+            self._cache[key] = (time.time(), data)
+
+# Global cache instance
+_chart_cache = ChartCache(ttl_seconds=300)
 
 def generate_chart(pair: str, period: str = "1mo") -> Optional[io.BytesIO]:
     """
     Generates a line chart for the given currency pair (e.g., 'RUB=X' for USD/RUB).
     Returns a BytesIO object containing the image.
+    Uses in-memory caching to reduce Matplotlib overhead and API calls.
     """
+    # Check cache first
+    cached_bytes = _chart_cache.get(pair, period)
+    if cached_bytes:
+        return io.BytesIO(cached_bytes)
+
     # Fetch data
     try:
         ticker = yf.Ticker(pair)
@@ -69,6 +110,10 @@ def generate_chart(pair: str, period: str = "1mo") -> Optional[io.BytesIO]:
         fig.savefig(buf, format='png', bbox_inches='tight', facecolor=c_bg)
         buf.seek(0)
         plt.close(fig)
+
+        # Store in cache
+        image_bytes = buf.getvalue()
+        _chart_cache.set(pair, period, image_bytes)
 
         return buf
 
