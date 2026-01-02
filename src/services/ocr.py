@@ -29,9 +29,20 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
         # Doing this first speeds up subsequent operations (resize, stats) by working on 1 channel instead of 3.
         image = image.convert('L')
 
+        # Optimization: Downscale huge images to reduce CPU usage for subsequent operations
+        # Tesseract doesn't need 4K resolution for typical text. 1600px width is plenty.
+        if width > 1600:
+            scale_ratio = 1600 / width
+            new_height = int(height * scale_ratio)
+            # Bilinear is fast and good enough for downscaling
+            image = image.resize((1600, new_height), Image.Resampling.BILINEAR)
+            logger.info(f"Downscaled huge image to 1600x{new_height}")
+
         # 2. Detect Dark Mode and Invert
-        # Calculate mean brightness
-        stat = ImageStat.Stat(image)
+        # Use a small thumbnail for brightness calculation (O(1) relative to input size)
+        # 100x100 is sufficient for average brightness estimation
+        thumb = image.resize((100, 100), Image.Resampling.NEAREST)
+        stat = ImageStat.Stat(thumb)
         avg_brightness = stat.mean[0]
 
         if avg_brightness < 128:
