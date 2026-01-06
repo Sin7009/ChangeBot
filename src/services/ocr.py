@@ -7,6 +7,9 @@ import pytesseract
 
 logger = logging.getLogger(__name__)
 
+# Constants for image optimization
+MAX_IMAGE_WIDTH = 1600
+
 def image_to_text(image_bytes: bytes) -> Optional[str]:
     """
     Extracts text from an image byte stream using Tesseract OCR.
@@ -29,9 +32,24 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
         # Doing this first speeds up subsequent operations (resize, stats) by working on 1 channel instead of 3.
         image = image.convert('L')
 
+        # Optimize: Downscale very large images
+        # OCR typically doesn't need 12MP resolution. 1600px width is usually sufficient.
+        # Downscaling before stats/contrast/OCR significantly reduces CPU usage.
+        if width > MAX_IMAGE_WIDTH:
+            scale_factor = MAX_IMAGE_WIDTH / width
+            new_height = int(height * scale_factor)
+            new_size = (MAX_IMAGE_WIDTH, new_height)
+            logger.info(f"Downscaling large image from {width}x{height} to {new_size} for performance")
+            # Use BILINEAR for downscaling as it's faster and sufficient for reduction
+            image = image.resize(new_size, Image.Resampling.BILINEAR)
+            # Update width/height for subsequent logic
+            width, height = new_size
+
         # 2. Detect Dark Mode and Invert
-        # Calculate mean brightness
-        stat = ImageStat.Stat(image)
+        # Calculate mean brightness using a thumbnail for performance (O(1) vs O(N))
+        # Use NEAREST resampling as we only need approximate brightness
+        thumb = image.resize((100, 100), Image.Resampling.NEAREST)
+        stat = ImageStat.Stat(thumb)
         avg_brightness = stat.mean[0]
 
         if avg_brightness < 128:
