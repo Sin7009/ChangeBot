@@ -1,5 +1,4 @@
-import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from PIL import Image
 import io
 from src.services.ocr import image_to_text

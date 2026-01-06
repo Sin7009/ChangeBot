@@ -1,4 +1,3 @@
-import pytest
 from src.services.recognizer import CurrencyRecognizer
 
 def test_comma_separated_thousands_handling():

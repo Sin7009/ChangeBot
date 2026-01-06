@@ -1,5 +1,4 @@
 
-import pytest
 from src.services.recognizer import CurrencyRecognizer
 
 """

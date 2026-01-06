@@ -1,5 +1,4 @@
-import pytest
-from src.services.recognizer import recognize, Price
+from src.services.recognizer import recognize
 
 
 def test_recognize_prevents_long_strings():

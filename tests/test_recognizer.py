@@ -1,5 +1,5 @@
 import unittest
-from src.services.recognizer import recognize, Price
+from src.services.recognizer import recognize
 
 class TestRecognizer(unittest.TestCase):
     def test_basic_usd(self):
