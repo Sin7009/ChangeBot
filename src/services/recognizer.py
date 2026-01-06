@@ -74,24 +74,8 @@ class CurrencyRecognizer:
         "триллион": 1000000000000.0, "триллиона": 1000000000000.0, "триллионов": 1000000000000.0, "трлн": 1000000000000.0,
     }
 
-    STOP_WORDS = {
-        "pro", "max", "plus", "ultra", "mini", "slim",
-        "gb", "tb", "гб", "тб", "мб", "кб",
-        "шт", "уп", "kg", "кг",
-        "цена", "price", "сумма", "итого", "total",
-        # Technical terms that can be mistaken for currencies
-        "bit", "бит", "gpu", "rtx", "gtx", "cpu", "ram", 
-        "ssd", "hdd", "mhz", "ghz", "ddr",
-    }
-
     # Slang terms that imply RUB when used as multipliers
     IMPLIED_RUBLE_TOKENS = {"косарь", "косаря", "косарей", "лям", "лямов", "тонна"}
-
-    # Compiled pattern for stop words removal (much faster than iterating)
-    # Sort by length descending to match longest words first
-    _STOP_WORDS_PATTERN = re.compile(
-        r'\b(?:' + '|'.join(map(re.escape, sorted(STOP_WORDS, key=len, reverse=True))) + r')\b'
-    )
 
     # Dynamic regex parts
     # Suffix style: k, m, к, м (followed by non-letters)
@@ -196,8 +180,9 @@ class CurrencyRecognizer:
         """
         results = []
 
-        # Удаляем стоп-слова, чтобы они не мешали парсингу (например, "14 PRO")
-        text_cleaned = cls._STOP_WORDS_PATTERN.sub(' ', text.lower())
+        # Stop words removal was removed as it was redundant and caused false positives
+        # (e.g. "100 gb usd" -> "100 usd"). The whitelist regex handles non-currency words correctly.
+        text_cleaned = text.lower()
 
         # Optimization: Single pass using combined regex
         for match in cls.COMBINED_PATTERN.finditer(text_cleaned):
