@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Set
 
 @dataclass
 class Price:
