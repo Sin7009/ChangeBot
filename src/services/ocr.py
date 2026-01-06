@@ -46,10 +46,8 @@ def image_to_text(image_bytes: bytes) -> Optional[str]:
             width, height = new_size
 
         # 2. Detect Dark Mode and Invert
-        # Calculate mean brightness
-        # Optimization: Resize to a small thumbnail to calculate brightness
-        # This reduces ImageStat.Stat complexity from O(W*H) to O(1) relative to input size
-        # Benchmark showed ~90x speedup for 12MP images (9ms -> 0.1ms)
+        # Calculate mean brightness using a thumbnail for performance (O(1) vs O(N))
+        # Use NEAREST resampling as we only need approximate brightness
         thumb = image.resize((100, 100), Image.Resampling.NEAREST)
         stat = ImageStat.Stat(thumb)
         avg_brightness = stat.mean[0]
