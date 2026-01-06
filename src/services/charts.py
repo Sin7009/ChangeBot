@@ -5,7 +5,9 @@ import threading
 import matplotlib
 # Указываем, что у нас нет дисплея. Это обязательно для сервера.
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+# Use Figure directly to avoid global state from pyplot
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 import matplotlib.dates as mdates
 import yfinance as yf
 from typing import Optional, Dict, Tuple
@@ -78,7 +80,15 @@ def generate_chart(pair: str, period: str = "1mo") -> Optional[io.BytesIO]:
         c_bg = '#FAFAF1'
         c_grid = '#E3E6A1'
 
-        fig, ax = plt.subplots(figsize=(10, 5))
+        # OPTIMIZATION: Use Figure directly instead of plt.subplots()
+        # This avoids interacting with the global pyplot state machine,
+        # which is safer for threaded environments and slightly faster (less overhead).
+        fig = Figure(figsize=(10, 5))
+        # Attach a canvas to the figure (required for saving)
+        FigureCanvasAgg(fig)
+
+        ax = fig.add_subplot(111)
+
         fig.patch.set_facecolor(c_bg)
         ax.set_facecolor(c_bg)
 
@@ -106,10 +116,10 @@ def generate_chart(pair: str, period: str = "1mo") -> Optional[io.BytesIO]:
 
         # Save to buffer
         buf = io.BytesIO()
-        # Use fig.savefig instead of plt.savefig for thread safety
         fig.savefig(buf, format='png', bbox_inches='tight', facecolor=c_bg)
         buf.seek(0)
-        plt.close(fig)
+
+        # No need to call plt.close(fig) as we didn't use pyplot
 
         # Store in cache
         image_bytes = buf.getvalue()
