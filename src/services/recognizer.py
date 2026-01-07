@@ -154,6 +154,10 @@ class CurrencyRecognizer:
             "1.5" (decimal) -> 1.5
             "1,5" (European decimal) -> 1.5
         """
+        # OPTIMIZATION: Early return if no comma present
+        if ',' not in amount_str:
+            return float(amount_str)
+
         # If comma is followed by exactly 3 digits and then non-digit or end,
         # it's likely a thousands separator (e.g., "1,000" or "10,000")
         # Otherwise, treat it as a decimal separator (e.g., "1,5" -> 1.5)
