@@ -38,6 +38,15 @@ def test_image_to_text_with_valid_text():
         result = image_to_text(image_bytes)
         assert result == 'Test Text'
 
+def test_image_to_text_with_bytesio():
+    """Test OCR accepts io.BytesIO"""
+    image_bytes = create_test_image()
+    buf = io.BytesIO(image_bytes)
+
+    with patch('pytesseract.image_to_string', return_value='  Test Text  \n'):
+        result = image_to_text(buf)
+        assert result == 'Test Text'
+
 
 def test_image_to_text_dark_mode_detection():
     """Test that dark images are inverted"""

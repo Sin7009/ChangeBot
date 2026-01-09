@@ -1,6 +1,6 @@
 import io
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 from PIL import Image, ImageEnhance, ImageOps, ImageStat
 import pytesseract
@@ -10,19 +10,26 @@ logger = logging.getLogger(__name__)
 # Constants for image optimization
 MAX_IMAGE_WIDTH = 1600
 
-def image_to_text(image_bytes: bytes) -> Optional[str]:
+def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
     """
     Extracts text from an image byte stream using Tesseract OCR.
     Includes preprocessing for dark mode and low contrast.
 
     Args:
-        image_bytes: The image data in bytes.
+        image_input: The image data as bytes or io.BytesIO.
 
     Returns:
         The extracted text as a string, or None if extraction fails or no text is found.
     """
     try:
-        image = Image.open(io.BytesIO(image_bytes))
+        # OPTIMIZATION: Support reading directly from BytesIO to avoid
+        # unnecessary memory copy (bytes -> BytesIO -> Image).
+        if isinstance(image_input, bytes):
+            image_file = io.BytesIO(image_input)
+        else:
+            image_file = image_input
+
+        image = Image.open(image_file)
 
         # Log original size
         width, height = image.size

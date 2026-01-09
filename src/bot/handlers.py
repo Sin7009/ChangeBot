@@ -228,13 +228,15 @@ async def handle_photo(message: Message, session: AsyncSession):
                 await status_msg.edit_text("⏱️ Превышено время загрузки изображения")
             return
             
-        image_bytes = file_io.getvalue()
+        # OPTIMIZATION: Pass BytesIO directly to avoid copying bytes with getvalue()
+        # This saves memory (approx 1x image size) and CPU.
+        file_io.seek(0)
 
         # Run OCR in executor with timeout
         loop = asyncio.get_running_loop()
         try:
             text = await asyncio.wait_for(
-                loop.run_in_executor(None, image_to_text, image_bytes),
+                loop.run_in_executor(None, image_to_text, file_io),
                 timeout=30.0
             )
         except asyncio.TimeoutError:
