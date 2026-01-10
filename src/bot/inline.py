@@ -21,6 +21,11 @@ async def inline_query_handler(inline_query: InlineQuery):
     if not prices:
         return
 
+    # OPTIMIZATION: Fetch rates once for batch processing
+    rates = await rates_service.get_rates()
+    if not rates:
+        return
+
     results = []
     # Default targets for inline mode
     targets = ["RUB", "USD", "EUR"]
@@ -31,7 +36,9 @@ async def inline_query_handler(inline_query: InlineQuery):
             if price.currency == target:
                 continue
 
-            converted_amount = await rates_service.convert(price.amount, price.currency, target)
+            converted_amount = rates_service.calculate_conversion(
+                price.amount, price.currency, target, rates
+            )
             if converted_amount == 0.0:
                 continue
 

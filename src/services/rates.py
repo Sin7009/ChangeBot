@@ -154,42 +154,47 @@ class RatesService:
 
         return self.rates
 
-    async def convert(self, amount: float, from_curr: str, to_curr: str) -> float:
+    def calculate_conversion(self, amount: float, from_curr: str, to_curr: str, rates: Dict[str, float]) -> float:
         """
-        Converts amount from `from_curr` to `to_curr`.
+        Synchronous conversion logic using provided rates.
         Returns 0.0 if conversion fails.
         """
         from_curr = from_curr.upper()
         to_curr = to_curr.upper()
 
+        # USD is base, ensure it exists conceptually
+        rate_from = rates.get(from_curr)
+        if rate_from is None and from_curr == "USD":
+            rate_from = 1.0
+
+        rate_to = rates.get(to_curr)
+        if rate_to is None and to_curr == "USD":
+            rate_to = 1.0
+
+        if rate_from is None:
+            logger.warning(f"Currency {from_curr} not found in rates.")
+            return 0.0
+
+        if rate_to is None:
+            logger.warning(f"Currency {to_curr} not found in rates.")
+            return 0.0
+
+        if rate_from == 0.0:
+            return 0.0
+
+        return amount * (rate_to / rate_from)
+
+    async def convert(self, amount: float, from_curr: str, to_curr: str) -> float:
+        """
+        Converts amount from `from_curr` to `to_curr`.
+        Returns 0.0 if conversion fails.
+        """
         rates = await self.get_rates()
 
         if not rates:
             logger.error("No rates available for conversion.")
             return 0.0
 
-        if "USD" not in rates:
-            rates["USD"] = 1.0
-
-        rate_from = rates.get(from_curr)
-        rate_to = rates.get(to_curr)
-
-        if rate_from is None:
-             # Fallback for USD base
-             if from_curr == "USD": rate_from = 1.0
-             else: 
-                 logger.warning(f"Currency {from_curr} not found in rates.")
-                 return 0.0
-
-        if rate_to is None:
-             if to_curr == "USD": rate_to = 1.0
-             else:
-                 logger.warning(f"Currency {to_curr} not found in rates.")
-                 return 0.0
-
-        if rate_from == 0.0:
-            return 0.0
-
-        return amount * (rate_to / rate_from)
+        return self.calculate_conversion(amount, from_curr, to_curr, rates)
 
 rates_service = RatesService()
