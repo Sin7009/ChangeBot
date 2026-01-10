@@ -34,6 +34,12 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
     if not target_currencies:
          return None
 
+    # OPTIMIZATION: Fetch rates once to avoid repeated async calls and lock acquisition overhead
+    # in the loop below. This reduces context switching.
+    rates = await rates_service.get_rates()
+    if not rates:
+        return None
+
     response_lines = []
 
     for price in prices:
@@ -47,7 +53,10 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
                 continue
 
             target_flag = get_flag(target_code)
-            converted_amount = await rates_service.convert(price.amount, price.currency, target_code)
+            # Use synchronous calculation with pre-fetched rates
+            converted_amount = rates_service.calculate_conversion(
+                price.amount, price.currency, target_code, rates
+            )
 
             formatted_amount = f"{converted_amount:.2f}".rstrip("0").rstrip(".")
             conversions.append(f"{target_flag} {formatted_amount} {target_code}")
