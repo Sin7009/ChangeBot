@@ -35,11 +35,29 @@ def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
         width, height = image.size
         logger.info(f"OCR Request: Image size {width}x{height}")
 
+        # OPTIMIZATION: Use JPEG draft mode to downscale during decode.
+        # This significantly reduces memory usage and CPU time for large JPEGs
+        # by avoiding full resolution decoding.
+        if image.format == 'JPEG' and width > MAX_IMAGE_WIDTH:
+            scale_factor = MAX_IMAGE_WIDTH / width
+            new_height = int(height * scale_factor)
+            try:
+                # draft() modifies the image object in place to load a downscaled version.
+                # It returns the image object itself (or None).
+                image.draft('L', (MAX_IMAGE_WIDTH, new_height))
+                logger.info(f"Used JPEG draft mode to load image at approx {MAX_IMAGE_WIDTH}x{new_height}")
+            except Exception as e:
+                logger.warning(f"Failed to apply JPEG draft mode: {e}")
+
         # 1. Convert to grayscale for better OCR accuracy
         # Doing this first speeds up subsequent operations (resize, stats) by working on 1 channel instead of 3.
+        # If draft mode was successful, this loads the downscaled data.
         image = image.convert('L')
 
-        # Optimize: Downscale very large images
+        # Update width/height to actual loaded size (draft might not be exact)
+        width, height = image.size
+
+        # Optimize: Downscale very large images (if draft wasn't used or wasn't enough)
         # OCR typically doesn't need 12MP resolution. 1600px width is usually sufficient.
         # Downscaling before stats/contrast/OCR significantly reduces CPU usage.
         if width > MAX_IMAGE_WIDTH:
