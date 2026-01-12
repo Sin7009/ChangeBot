@@ -188,6 +188,23 @@ class CurrencyRecognizer:
         # (e.g. "100 gb usd" -> "100 usd"). The whitelist regex handles non-currency words correctly.
         text_cleaned = text.lower()
 
+        # OPTIMIZATION: "Fast Path" for text without digits.
+        # The COMBINED_PATTERN requires at least one digit (for amount) in its first two major parts.
+        # Only the third part (STANDALONE_SLANG_PATTERN) can match without digits.
+        # By checking for digits first, we can skip the complex regex scan for most chat messages.
+        has_digits = re.search(r'\d', text) is not None
+
+        if not has_digits:
+            # Only check standalone slang (e.g. "косарь")
+            for match in cls.STANDALONE_SLANG_PATTERN.finditer(text_cleaned):
+                 # Group 1 of STANDALONE_SLANG_PATTERN corresponds to group 7 in COMBINED_PATTERN logic
+                 # but here finditer returns matches for the smaller regex, so it's group 1.
+                 word = match.group(1)
+                 if word in cls.SLANG_AMOUNT_CURRENCY:
+                     val, curr = cls.SLANG_AMOUNT_CURRENCY[word]
+                     results.append(Price(amount=val, currency=curr))
+            return results
+
         # Optimization: Single pass using combined regex
         for match in cls.COMBINED_PATTERN.finditer(text_cleaned):
             # Check which group matched
