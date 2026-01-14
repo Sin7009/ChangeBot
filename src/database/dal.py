@@ -1,10 +1,15 @@
-from typing import List
+import time
+from typing import List, Dict, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models import ChatSettings
 
 DEFAULT_CURRENCIES = ["USD", "EUR", "RUB"]
+
+# Simple cache: chat_id -> (timestamp, target_currencies)
+_settings_cache: Dict[int, Tuple[float, List[str]]] = {}
+CACHE_TTL = 300  # 5 minutes
 
 async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings:
     """
@@ -26,6 +31,24 @@ async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings
         await session.refresh(settings)
 
     return settings
+
+async def get_target_currencies(session: AsyncSession, chat_id: int) -> List[str]:
+    """
+    Retrieves the list of target currencies for a chat, using a read-through cache.
+    This avoids database queries for every message in active chats.
+    """
+    now = time.time()
+    if chat_id in _settings_cache:
+        timestamp, data = _settings_cache[chat_id]
+        if now - timestamp < CACHE_TTL:
+            return list(data)  # Return copy to prevent mutation issues
+
+    # Cache miss
+    settings = await get_chat_settings(session, chat_id)
+    currencies = list(settings.target_currencies)
+
+    _settings_cache[chat_id] = (now, currencies)
+    return currencies
 
 async def toggle_currency(session: AsyncSession, chat_id: int, currency_code: str) -> List[str]:
     """
@@ -49,5 +72,8 @@ async def toggle_currency(session: AsyncSession, chat_id: int, currency_code: st
 
     await session.commit()
     await session.refresh(settings)
+
+    # Update cache
+    _settings_cache[chat_id] = (time.time(), list(settings.target_currencies))
 
     return settings.target_currencies
