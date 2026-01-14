@@ -27,7 +27,9 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
     Converts a list of recognized prices to the target currencies defined in chat settings.
     Returns a formatted string with the conversions, or None if no targets are set.
     """
-    # Fetch settings (using cache)
+    # Fetch settings via get_target_currencies, which uses an in-memory cache to avoid hitting
+    # the database on this high-frequency path (per-message conversions). This significantly
+    # reduces repeated chat-settings queries and improves end-to-end latency under load.
     target_currencies = await get_target_currencies(session, chat_id)
 
     if not target_currencies:
