@@ -12,7 +12,7 @@ from src.services.recognizer import recognize, Price
 from src.services.rates import rates_service
 from src.services.charts import generate_chart
 from src.services.ocr import image_to_text
-from src.database.dal import get_chat_settings, toggle_currency
+from src.database.dal import get_chat_settings, get_target_currencies, toggle_currency
 from src.bot.keyboards import settings_keyboard, CURRENCY_FLAGS
 
 logger = logging.getLogger(__name__)
@@ -27,9 +27,9 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
     Converts a list of recognized prices to the target currencies defined in chat settings.
     Returns a formatted string with the conversions, or None if no targets are set.
     """
-    # Fetch settings
-    settings = await get_chat_settings(session, chat_id)
-    target_currencies = settings.target_currencies
+    # Fetch settings (using cache)
+    # OPTIMIZATION: Use get_target_currencies (cached) instead of get_chat_settings (DB hit)
+    target_currencies = await get_target_currencies(session, chat_id)
 
     if not target_currencies:
          return None
@@ -83,8 +83,9 @@ async def cmd_start(message: Message):
 
 @main_router.message(Command("settings"))
 async def cmd_settings(message: Message, session: AsyncSession):
-    settings = await get_chat_settings(session, message.chat.id)
-    keyboard = settings_keyboard(message.chat.id, settings.target_currencies)
+    # OPTIMIZATION: Use cached currencies for displaying the keyboard
+    target_currencies = await get_target_currencies(session, message.chat.id)
+    keyboard = settings_keyboard(message.chat.id, target_currencies)
     await message.answer("Выберите валюты для конвертации:", reply_markup=keyboard)
 
 @main_router.message(Command("chart"))
