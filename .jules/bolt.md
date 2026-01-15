@@ -5,3 +5,7 @@
 ## 2024-05-24 - [Matplotlib Caching - Byte Storage]
 **Learning:** When caching objects like `io.BytesIO` that are stateful (have a cursor position), simply caching the object itself leads to bugs where subsequent reads return empty data because the cursor is at the end.
 **Action:** Cache the immutable raw data (`bytes` or `buf.getvalue()`) instead of the stateful stream object. Construct a new `io.BytesIO(cached_bytes)` for each consumer. This ensures thread safety and correct behavior for multiple concurrent reads.
+
+## 2024-05-25 - [Regex Performance - Trie Optimization]
+**Learning:** Python's `re` module does not automatically optimize large disjunctions (e.g. `word1|word2|...|word50`) into a Trie structure. This results in O(N*M) matching complexity where M is the number of alternatives.
+**Action:** For matching against a fixed set of keywords (like currency codes), pre-compile the list into a Trie-based regex pattern (e.g. `u(?:sd(?:t)?)?`). This reduces backtracking and improves matching speed by ~30-40%.

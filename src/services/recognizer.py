@@ -7,6 +7,43 @@ class Price:
     amount: float
     currency: str
 
+def trie_regex_from_words(words: List[str]) -> str:
+    """
+    Constructs an optimized Regex from a list of words using a Trie structure.
+    This reduces backtracking and improves performance compared to a simple OR list.
+    """
+    trie = {}
+    for word in words:
+        node = trie
+        for char in word:
+            node = node.setdefault(char, {})
+        node['__end__'] = True
+
+    def _regex_from_trie(node):
+        has_end = node.pop('__end__', False)
+
+        # Sort keys to ensure deterministic output
+        chars = sorted(node.keys())
+
+        if not chars:
+            return ""
+
+        alts = []
+        for char in chars:
+            child_regex = _regex_from_trie(node[char])
+            alts.append(re.escape(char) + child_regex)
+
+        if len(alts) == 1:
+            res = alts[0]
+        else:
+            res = "(?:" + "|".join(alts) + ")"
+
+        if has_end:
+             return "(?:" + res + ")?"
+        return res
+
+    return "(?:" + _regex_from_trie(trie) + ")"
+
 class CurrencyRecognizer:
     # Valid currency codes - whitelist to prevent false positives
     VALID_CURRENCIES = {
@@ -91,12 +128,11 @@ class CurrencyRecognizer:
     # Instead of matching [a-zA-Z]+ and checking dict in Python, we match only valid tokens in regex.
     # This prevents the loop from triggering on "100 apples".
     # Note: text is lowercased before matching, so these keys (lowercase) handle all cases.
-    _CURRENCY_TOKENS = set(SLANG_MAP.keys())
-    # Add multiplier-as-currency tokens (e.g. "косарь", "лям")
-    _CURRENCY_TOKENS.update(IMPLIED_RUBLE_TOKENS)
+    _CURRENCY_TOKENS = sorted(set(SLANG_MAP.keys()).union(IMPLIED_RUBLE_TOKENS))
     # Note: SYMBOLS are already in SLANG_MAP keys, so they are included here.
 
-    _CURRENCY_TOKEN_REGEX = r'(?:' + '|'.join(map(re.escape, sorted(_CURRENCY_TOKENS, key=len, reverse=True))) + r')'
+    # OPTIMIZATION: Use Trie-based regex for O(M) matching performance instead of O(M*N) list search.
+    _CURRENCY_TOKEN_REGEX = trie_regex_from_words(_CURRENCY_TOKENS)
 
     # Regex to capture amount and currency/slang
     # Group 1: Amount
