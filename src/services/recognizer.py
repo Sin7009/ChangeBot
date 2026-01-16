@@ -118,8 +118,9 @@ class CurrencyRecognizer:
     # Suffix style: k, m, к, м (followed by non-letters)
     _SUFFIX_REGEX = r'[kкmм](?![a-zA-Zа-яА-Я])'
     # Word style: match any key in MULTIPLIER_MAP that is > 1 char
-    _WORD_MULTIPLIERS = sorted([k for k in MULTIPLIER_MAP.keys() if len(k) > 1], key=len, reverse=True)
-    _WORD_REGEX = r'(?:' + '|'.join(map(re.escape, _WORD_MULTIPLIERS)) + r')'
+    _WORD_MULTIPLIERS = [k for k in MULTIPLIER_MAP.keys() if len(k) > 1]
+    # OPTIMIZATION: Use Trie-based regex for O(M) matching performance instead of O(M*N) list search.
+    _WORD_REGEX = trie_regex_from_words(_WORD_MULTIPLIERS)
     
     # Combined Multiplier Regex: (Suffix | Word)
     MULTIPLIER_REGEX = f'(?:{_SUFFIX_REGEX}|{_WORD_REGEX})'
@@ -155,12 +156,15 @@ class CurrencyRecognizer:
         "лямов": (1000000.0, "RUB"),
     }
 
+    # OPTIMIZATION: Use Trie-based regex for standalone slang to improve matching performance
+    _SLANG_TOKENS = list(SLANG_AMOUNT_CURRENCY.keys())
+    _SLANG_REGEX = trie_regex_from_words(_SLANG_TOKENS)
+
     # Compiled pattern for standalone slang words
     # Matches words from SLANG_AMOUNT_CURRENCY if not preceded by a digit
+    # Note: We wrap the trie regex in a capturing group to match group(1) behavior
     STANDALONE_SLANG_PATTERN = re.compile(
-        r'(?<!\d)\s*(?<!\d\s)(' +
-        '|'.join(map(re.escape, sorted(SLANG_AMOUNT_CURRENCY.keys(), key=len, reverse=True))) +
-        r')\b'
+        rf'(?<!\d)\s*(?<!\d\s)({_SLANG_REGEX})\b'
     )
 
     # OPTIMIZATION: Combined regex for single-pass scanning
@@ -172,7 +176,7 @@ class CurrencyRecognizer:
     COMBINED_PATTERN = re.compile(
         rf'(?:(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX}))|'
         rf'(?:({_CURRENCY_TOKEN_REGEX})\s*(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?)|'
-        rf'(?:(?<!\d)\s*(?<!\d\s)(' + '|'.join(map(re.escape, sorted(SLANG_AMOUNT_CURRENCY.keys(), key=len, reverse=True))) + r')\b)'
+        rf'(?:(?<!\d)\s*(?<!\d\s)({_SLANG_REGEX})\b)'
     )
 
     # Compiled pattern for detecting thousands separators (e.g., "1,000")
