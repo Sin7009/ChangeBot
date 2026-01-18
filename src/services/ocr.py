@@ -52,7 +52,9 @@ def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
         # 1. Convert to grayscale for better OCR accuracy
         # Doing this first speeds up subsequent operations (resize, stats) by working on 1 channel instead of 3.
         # If draft mode was successful, this loads the downscaled data.
-        image = image.convert('L')
+        # OPTIMIZATION: Avoid unnecessary copy if already in grayscale (e.g. from draft mode)
+        if image.mode != 'L':
+            image = image.convert('L')
 
         # Update width/height to actual loaded size (draft might not be exact)
         width, height = image.size
