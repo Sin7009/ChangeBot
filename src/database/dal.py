@@ -1,5 +1,5 @@
 import time
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,8 +7,9 @@ from src.database.models import ChatSettings
 
 DEFAULT_CURRENCIES = ["USD", "EUR", "RUB"]
 
-# Simple cache: chat_id -> (timestamp, target_currencies)
-_settings_cache: Dict[int, Tuple[float, List[str]]] = {}
+# Simple cache: chat_id -> (timestamp, target_currencies_tuple)
+# OPTIMIZATION: Use Tuple for immutable cache storage to allow safe zero-copy reads.
+_settings_cache: Dict[int, Tuple[float, Tuple[str, ...]]] = {}
 CACHE_TTL = 300  # 5 minutes
 
 async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings:
@@ -32,20 +33,23 @@ async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings
 
     return settings
 
-async def get_target_currencies(session: AsyncSession, chat_id: int) -> List[str]:
+async def get_target_currencies(session: AsyncSession, chat_id: int) -> Sequence[str]:
     """
     Retrieves the list of target currencies for a chat, using a read-through cache.
-    This avoids database queries for every message in active chats.
+    Returns an immutable sequence (tuple) to safely avoid copying.
     """
     now = time.time()
     if chat_id in _settings_cache:
         timestamp, data = _settings_cache[chat_id]
         if now - timestamp < CACHE_TTL:
-            return list(data)  # Return copy to prevent mutation issues
+            # OPTIMIZATION: Return direct reference to immutable tuple.
+            # Zero-copy read is safe because data is immutable.
+            return data
 
     # Cache miss
     settings = await get_chat_settings(session, chat_id)
-    currencies = list(settings.target_currencies)
+    # Convert to tuple for immutable storage
+    currencies = tuple(settings.target_currencies)
 
     _settings_cache[chat_id] = (now, currencies)
     return currencies
@@ -73,7 +77,7 @@ async def toggle_currency(session: AsyncSession, chat_id: int, currency_code: st
     await session.commit()
     await session.refresh(settings)
 
-    # Update cache
-    _settings_cache[chat_id] = (time.time(), list(settings.target_currencies))
+    # Update cache with tuple
+    _settings_cache[chat_id] = (time.time(), tuple(settings.target_currencies))
 
     return settings.target_currencies
