@@ -179,10 +179,6 @@ class CurrencyRecognizer:
         rf'(?:(?<!\d)\s*(?<!\d\s)({_SLANG_REGEX})\b)'
     )
 
-    # Compiled pattern for detecting thousands separators (e.g., "1,000")
-    # Matches comma followed by exactly 3 digits and (end of string or non-digit)
-    THOUSANDS_SEPARATOR_PATTERN = re.compile(r',\d{3}(?:\D|$)')
-
     # OPTIMIZATION: Precompiled pattern for fast digit checking.
     # Avoiding re.search(r'\d', text) in the loop improves performance by ~2-3x.
     HAS_DIGIT_PATTERN = re.compile(r'\d')
@@ -203,12 +199,19 @@ class CurrencyRecognizer:
             return float(amount_str)
 
         # If comma is followed by exactly 3 digits and then non-digit or end,
-        # it's likely a thousands separator (e.g., "1,000" or "10,000")
-        # Otherwise, treat it as a decimal separator (e.g., "1,5" -> 1.5)
+        # it's likely a thousands separator (e.g., "1,000" or "10,000").
+        # OPTIMIZATION: using rpartition is faster than regex check.
+
+        _, _, tail = amount_str.rpartition(',')
         
-        if cls.THOUSANDS_SEPARATOR_PATTERN.search(amount_str):
-            # Remove comma as thousands separator
+        # Case 1: Comma at the end with 3 digits (e.g., "1,000")
+        if len(tail) == 3 and tail.isdigit():
             return float(amount_str.replace(',', ''))
+
+        # Case 2: Comma followed by 3 digits then non-digits (e.g., "1,000.00")
+        elif len(tail) > 3 and tail[:3].isdigit() and not tail[3].isdigit():
+            return float(amount_str.replace(',', ''))
+
         else:
             # Treat comma as decimal separator
             return float(amount_str.replace(',', '.'))
