@@ -13,3 +13,7 @@
 ## 2024-05-30 - [Regex Performance - Precompilation]
 **Learning:** Even simple regex operations like `re.search(r'\d', text)` incur compilation overhead if called repeatedly in a hot loop. Precompiling the regex pattern (`HAS_DIGIT_PATTERN = re.compile(r'\d')`) and using its `search` method reduces this overhead significantly.
 **Action:** Precompile all regex patterns at the module or class level, even "simple" ones, if they are used in high-frequency paths like message parsing. Benchmarking showed a ~2.2x - 2.9x speedup for the specific check.
+
+## 2024-06-05 - [String Operations vs Regex]
+**Learning:** For simple structural checks like "suffix length", pure string operations (`rsplit`, `len`) are faster (~1.2x) than precompiled regex. Regex incurs overhead even for simple patterns.
+**Action:** When validating simple string formats (e.g. "digits,digits"), prefer built-in string methods over regex if possible. Use `timeit` to confirm as the difference can be small in Python.

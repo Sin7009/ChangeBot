@@ -17,6 +17,14 @@ class TestRecognizerOptimization:
         assert CurrencyRecognizer._normalize_amount("1,5") == 1.5
         assert CurrencyRecognizer._normalize_amount("0,5") == 0.5
 
+    def test_normalize_amount_edge_cases(self):
+        # "1,2345" has 4 digits after comma -> not thousands separator
+        assert CurrencyRecognizer._normalize_amount("1,2345") == 1.2345
+        # "1,2" has 1 digit after comma -> not thousands separator
+        assert CurrencyRecognizer._normalize_amount("1,2") == 1.2
+        # "100,500" -> 100500.0 (3 digits)
+        assert CurrencyRecognizer._normalize_amount("100,500") == 100500.0
+
     def test_complex_parsing_still_works(self):
         # Integration test ensures parsing still works correctly
         # Using valid currencies: USD, EUR, RUB (implied by context or code)
