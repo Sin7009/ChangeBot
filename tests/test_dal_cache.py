@@ -21,20 +21,20 @@ async def test_get_target_currencies_caching():
 
         # 1. First call - should hit DB
         currencies = await get_target_currencies(mock_session, chat_id)
-        assert currencies == ["USD", "EUR"]
+        assert currencies == ("USD", "EUR")
         assert mock_get_settings.call_count == 1
 
         # 2. Second call - should hit cache (no DB)
         currencies_2 = await get_target_currencies(mock_session, chat_id)
-        assert currencies_2 == ["USD", "EUR"]
+        assert currencies_2 == ("USD", "EUR")
         assert mock_get_settings.call_count == 1  # Still 1
 
         # 3. Cache expiration (simulate)
         import time
-        _settings_cache[chat_id] = (time.time() - CACHE_TTL - 1, ["OLD"])
+        _settings_cache[chat_id] = (time.time() - CACHE_TTL - 1, ("OLD",))
 
         currencies_3 = await get_target_currencies(mock_session, chat_id)
-        assert currencies_3 == ["USD", "EUR"]  # Should fetch fresh
+        assert currencies_3 == ("USD", "EUR")  # Should fetch fresh
         assert mock_get_settings.call_count == 2
 
 @pytest.mark.asyncio
@@ -51,7 +51,7 @@ async def test_toggle_currency_updates_cache():
 
         # Populate cache with future expiration
         import time
-        _settings_cache[chat_id] = (time.time() + 1000, ["USD"])
+        _settings_cache[chat_id] = (time.time() + 1000, ("USD",))
 
         # Toggle currency
         # toggle_currency calls get_chat_settings internally too
@@ -64,5 +64,6 @@ async def test_toggle_currency_updates_cache():
 
         # Check if cache is updated in dal
         cached_time, cached_data = _settings_cache[chat_id]
+        assert isinstance(cached_data, tuple)
         assert "EUR" in cached_data
         assert "USD" in cached_data
