@@ -263,7 +263,12 @@ async def handle_photo(message: Message, session: AsyncSession):
         prices = recognize(text, strict_mode=True)
         if not prices:
             if is_private and status_msg:
-                await status_msg.edit_text("Не нашел валют на изображении.")
+                await status_msg.edit_text(
+                    "Не нашел валют на изображении.\n\n"
+                    "💡 <b>Совет:</b> На фото должен быть виден <b>символ валюты</b> "
+                    "($, €, ₽, и т.д.).",
+                    parse_mode="HTML"
+                )
             return
 
         response = await convert_prices(prices, session, message.chat.id)
