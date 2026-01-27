@@ -17,3 +17,7 @@
 ## 2024-06-05 - [String Operations vs Regex]
 **Learning:** For simple structural checks like "suffix length", pure string operations (`rsplit`, `len`) are faster (~1.2x) than precompiled regex. Regex incurs overhead even for simple patterns.
 **Action:** When validating simple string formats (e.g. "digits,digits"), prefer built-in string methods over regex if possible. Use `timeit` to confirm as the difference can be small in Python.
+
+## 2026-01-27 - [OCR Performance - Fast Autocontrast]
+**Learning:** ImageOps.autocontrast calculates the histogram of the full image (O(N)), which is expensive (8-10ms for 4MP). Using a small thumbnail (100x100) to estimate the histogram and generating a LUT reduces this to O(1) (relative to image size), achieving ~1.6x speedup.
+**Action:** For contrast enhancement, prefer estimating statistics from a downscaled thumbnail if pixel-perfect precision isn't required (like in OCR preprocessing). Be careful with floating point rounding when generating LUTs.
