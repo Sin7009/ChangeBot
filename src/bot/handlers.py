@@ -45,7 +45,8 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
     for price in prices:
         flag = get_flag(price.currency)
 
-        line_parts = [f"{flag} {price.amount:g} {price.currency} ≈"]
+        # Header: 🇺🇸 100 USD
+        response_lines.append(f"{flag} {price.amount:g} {price.currency}")
 
         conversions = []
         for target_code in target_currencies:
@@ -59,13 +60,14 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
             )
 
             formatted_amount = f"{converted_amount:.2f}".rstrip("0").rstrip(".")
-            conversions.append(f"{target_flag} {formatted_amount} {target_code}")
+            # Indented line: "  🇷🇺 9000 RUB"
+            conversions.append(f"  {target_flag} {formatted_amount} {target_code}")
 
         if conversions:
-            line_parts.append(" | ".join(conversions))
-            response_lines.append(" ".join(line_parts))
+            response_lines.extend(conversions)
+            response_lines.append("")  # Empty line between different source amounts
 
-    return "\n".join(response_lines) if response_lines else None
+    return "\n".join(response_lines).strip() if response_lines else None
 
 @main_router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -136,7 +138,7 @@ async def cmd_chart(message: Message, command: CommandObject):
         # e.g. "USDRUB=X"
         ticker = f"{currency}RUB=X"
 
-    status_msg = await message.answer(f"Генерирую график {currency}/RUB...")
+    status_msg = await message.answer(f"⏳ Получаю данные и строю график {currency}/RUB...")
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_photo")
 
     # Run synchronous chart generation in a thread or executor if needed,
