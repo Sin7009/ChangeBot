@@ -136,16 +136,18 @@ class CurrencyRecognizer:
     _CURRENCY_TOKEN_REGEX = trie_regex_from_words(_CURRENCY_TOKENS)
 
     # Regex to capture amount and currency/slang
-    # Group 1: Amount
+    # Group 1: Amount (supports space-separated thousands: "1 000 000")
     # Group 2: Multiplier (optional)
     # Group 3: Currency
+    # Pattern: either space-separated (\d{1,3}(?:\s\d{3})+) or regular (\d+), with optional decimal
+    _AMOUNT_REGEX = r'(?:\d{1,3}(?:\s\d{3})+|\d+)(?:[.,]\d+)?'
     PATTERN_START = re.compile(
-        rf'(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX})'
+        rf'({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX})'
     )
     
     # Currency Number [multiplier]
     PATTERN_END = re.compile(
-        rf'({_CURRENCY_TOKEN_REGEX})\s*(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?'
+        rf'({_CURRENCY_TOKEN_REGEX})\s*({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?'
     )
 
     SLANG_AMOUNT_CURRENCY = {
@@ -174,8 +176,8 @@ class CurrencyRecognizer:
     # 4,5,6: End Pattern (Currency, Amount, Multiplier)
     # 7: Standalone Slang
     COMBINED_PATTERN = re.compile(
-        rf'(?:(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX}))|'
-        rf'(?:({_CURRENCY_TOKEN_REGEX})\s*(\d+(?:[.,]\d+)?)\s*({MULTIPLIER_REGEX})?)|'
+        rf'(?:({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX}))|'
+        rf'(?:({_CURRENCY_TOKEN_REGEX})\s*({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?)|'
         rf'(?:(?<!\d)\s*(?<!\d\s)({_SLANG_REGEX})\b)'
     )
 
@@ -186,14 +188,22 @@ class CurrencyRecognizer:
     @classmethod
     def _normalize_amount(cls, amount_str: str) -> float:
         """
-        Normalize amount string to float, handling both comma as decimal separator
-        and comma as thousands separator.
+        Normalize amount string to float, handling:
+        - Spaces as thousands separators (e.g., "1 000 000")
+        - Comma as decimal separator (European format, e.g., "1,5")
+        - Comma as thousands separator (e.g., "1,000")
         
         Examples:
-            "1,000" (thousands) -> 1000.0
+            "1 000 000" (space-separated) -> 1000000.0
+            "1 000" (space-separated) -> 1000.0
+            "1,000" (comma thousands) -> 1000.0
             "1.5" (decimal) -> 1.5
             "1,5" (European decimal) -> 1.5
         """
+        # First, handle spaces - always treat as thousands separator
+        if ' ' in amount_str:
+            amount_str = amount_str.replace(' ', '')
+        
         # OPTIMIZATION: Early return if no comma present
         if ',' not in amount_str:
             return float(amount_str)
