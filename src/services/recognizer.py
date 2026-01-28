@@ -198,15 +198,20 @@ class CurrencyRecognizer:
         if ',' not in amount_str:
             return float(amount_str)
 
-        # OPTIMIZATION: Use string manipulation instead of regex for performance (~1.2x faster)
-        # If comma is followed by exactly 3 digits and then end (implied by regex capture group context),
-        # it's likely a thousands separator (e.g., "1,000").
-        # Note: amount_str is constrained by regex \d+(?:[.,]\d+)? so it ends with digits.
+        # If comma is followed by exactly 3 digits and then non-digit or end,
+        # it's likely a thousands separator (e.g., "1,000" or "10,000").
+        # OPTIMIZATION: using rpartition is faster than regex check.
+
+        _, _, tail = amount_str.rpartition(',')
         
-        parts = amount_str.rsplit(',', 1)
-        if len(parts) == 2 and len(parts[1]) == 3:
-            # Remove comma as thousands separator
+        # Case 1: Comma at the end with 3 digits (e.g., "1,000")
+        if len(tail) == 3 and tail.isdigit():
             return float(amount_str.replace(',', ''))
+
+        # Case 2: Comma followed by 3 digits then non-digits (e.g., "1,000.00")
+        elif len(tail) > 3 and tail[:3].isdigit() and not tail[3].isdigit():
+            return float(amount_str.replace(',', ''))
+
         else:
             # Treat comma as decimal separator
             return float(amount_str.replace(',', '.'))
