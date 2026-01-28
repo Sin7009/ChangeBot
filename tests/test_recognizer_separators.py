@@ -37,5 +37,21 @@ class TestRecognizerSeparators(unittest.TestCase):
         # 1000 -> 1000.0
         self.assertEqual(CurrencyRecognizer._normalize_amount("1000"), 1000.0)
 
+    def test_space_separator_thousands(self):
+        # 1 000 -> 1000.0
+        self.assertEqual(CurrencyRecognizer._normalize_amount("1 000"), 1000.0)
+
+    def test_space_separator_millions(self):
+        # 1 000 000 -> 1000000.0
+        self.assertEqual(CurrencyRecognizer._normalize_amount("1 000 000"), 1000000.0)
+
+    def test_space_separator_hundreds_thousands(self):
+        # 100 000 -> 100000.0
+        self.assertEqual(CurrencyRecognizer._normalize_amount("100 000"), 100000.0)
+
+    def test_space_separator_with_decimal_comma(self):
+        # 1 000,5 -> 1000.5
+        self.assertEqual(CurrencyRecognizer._normalize_amount("1 000,5"), 1000.5)
+
 if __name__ == '__main__':
     unittest.main()
