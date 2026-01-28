@@ -56,7 +56,7 @@ class TestRecognizerSpaces(unittest.TestCase):
         self.assertEqual(res[0].currency, "USD")
     
     def test_real_news_apple_theft(self):
-        # From the problem statement - should find two amounts
+        # From the problem statement
         text = "В Подмосковье водитель новичок украл технику Apple на 4,5 млн рублей за один день"
         res = recognize(text)
         self.assertEqual(len(res), 1)
@@ -73,11 +73,11 @@ class TestRecognizerSpaces(unittest.TestCase):
     
     def test_real_news_tour_operator(self):
         # From the problem statement
+        # "больше миллиона" (more than a million) without explicit number - not parseable
         text = "Москвич отсудил у туроператора больше миллиона рублей за сорванную поездку"
         res = recognize(text)
-        # "больше миллиона" is tricky - just "миллиона" without a number
-        # For now, let's test specific amounts from the details
-        pass
+        # Expected: no match since there's no explicit number before "миллиона"
+        self.assertEqual(len(res), 0)
     
     def test_real_news_tour_operator_amounts(self):
         # From the problem statement - multiple amounts with spaces
@@ -101,10 +101,17 @@ class TestRecognizerSpaces(unittest.TestCase):
         self.assertIn(5000.0, amounts)  # 5 000
     
     def test_space_separated_with_thousands_separator(self):
-        # Edge case: multiple spaces between digit groups
+        # Basic test for space-separated thousands
         res = recognize("1 000 рублей")
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0].amount, 1000.0)
+        self.assertEqual(res[0].currency, "RUB")
+    
+    def test_multiple_spaces_between_groups(self):
+        # Edge case: multiple spaces between digit groups
+        res = recognize("1  000  000 рублей")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].amount, 1000000.0)
         self.assertEqual(res[0].currency, "RUB")
     
     def test_nvidia_salary_example(self):

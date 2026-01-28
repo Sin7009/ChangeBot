@@ -136,11 +136,11 @@ class CurrencyRecognizer:
     _CURRENCY_TOKEN_REGEX = trie_regex_from_words(_CURRENCY_TOKENS)
 
     # Regex to capture amount and currency/slang
-    # Group 1: Amount (supports space-separated thousands: "1 000 000")
+    # Group 1: Amount (supports space-separated thousands: "1 000 000" or "1  000  000")
     # Group 2: Multiplier (optional)
     # Group 3: Currency
-    # Pattern: either space-separated (\d{1,3}(?:\s\d{3})+) or regular (\d+), with optional decimal
-    _AMOUNT_REGEX = r'(?:\d{1,3}(?:\s\d{3})+|\d+)(?:[.,]\d+)?'
+    # Pattern: either space-separated (\d{1,3}(?:\s+\d{3})+) or regular (\d+), with optional decimal
+    _AMOUNT_REGEX = r'(?:\d{1,3}(?:\s+\d{3})+|\d+)(?:[.,]\d+)?'
     PATTERN_START = re.compile(
         rf'({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX})'
     )
