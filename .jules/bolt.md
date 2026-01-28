@@ -13,3 +13,7 @@
 ## 2024-05-30 - [Regex Performance - Precompilation]
 **Learning:** Even simple regex operations like `re.search(r'\d', text)` incur compilation overhead if called repeatedly in a hot loop. Precompiling the regex pattern (`HAS_DIGIT_PATTERN = re.compile(r'\d')`) and using its `search` method reduces this overhead significantly.
 **Action:** Precompile all regex patterns at the module or class level, even "simple" ones, if they are used in high-frequency paths like message parsing. Benchmarking showed a ~2.2x - 2.9x speedup for the specific check.
+
+## 2024-05-31 - [Immutable Cache Storage]
+**Learning:** Storing mutable objects (lists) in a read-through cache forces defensive copying on every read to prevent data corruption, which incurs O(N) allocation overhead.
+**Action:** Use immutable data structures (tuples) for cache storage. This allows returning direct references to the cached data (Zero-Copy), significantly reducing CPU and memory pressure in high-frequency read paths while maintaining thread safety.

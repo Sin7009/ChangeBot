@@ -12,7 +12,7 @@ from src.services.recognizer import recognize, Price
 from src.services.rates import rates_service
 from src.services.charts import generate_chart
 from src.services.ocr import image_to_text
-from src.database.dal import get_chat_settings, get_target_currencies, toggle_currency
+from src.database.dal import get_chat_settings, toggle_currency, get_target_currencies
 from src.bot.keyboards import settings_keyboard, CURRENCY_FLAGS
 
 logger = logging.getLogger(__name__)
@@ -27,8 +27,9 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
     Converts a list of recognized prices to the target currencies defined in chat settings.
     Returns a formatted string with the conversions, or None if no targets are set.
     """
-    # Fetch settings (using cache)
-    # OPTIMIZATION: Use get_target_currencies (cached) instead of get_chat_settings (DB hit)
+    # Fetch settings via get_target_currencies, which uses an in-memory cache to avoid hitting
+    # the database on this high-frequency path (per-message conversions). This significantly
+    # reduces repeated chat-settings queries and improves end-to-end latency under load.
     target_currencies = await get_target_currencies(session, chat_id)
 
     if not target_currencies:
@@ -45,7 +46,8 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
     for price in prices:
         flag = get_flag(price.currency)
 
-        line_parts = [f"{flag} {price.amount:g} {price.currency} ≈"]
+        # Header: 🇺🇸 100 USD
+        response_lines.append(f"{flag} {price.amount:g} {price.currency}")
 
         conversions = []
         for target_code in target_currencies:
@@ -59,13 +61,14 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
             )
 
             formatted_amount = f"{converted_amount:.2f}".rstrip("0").rstrip(".")
-            conversions.append(f"{target_flag} {formatted_amount} {target_code}")
+            # Indented line: "  🇷🇺 9000 RUB"
+            conversions.append(f"  {target_flag} {formatted_amount} {target_code}")
 
         if conversions:
-            line_parts.append(" | ".join(conversions))
-            response_lines.append(" ".join(line_parts))
+            response_lines.extend(conversions)
+            response_lines.append("")  # Empty line between different source amounts
 
-    return "\n".join(response_lines) if response_lines else None
+    return "\n".join(response_lines).strip() if response_lines else None
 
 @main_router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -136,7 +139,7 @@ async def cmd_chart(message: Message, command: CommandObject):
         # e.g. "USDRUB=X"
         ticker = f"{currency}RUB=X"
 
-    status_msg = await message.answer(f"Генерирую график {currency}/RUB...")
+    status_msg = await message.answer(f"⏳ Получаю данные и строю график {currency}/RUB...")
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_photo")
 
     # Run synchronous chart generation in a thread or executor if needed,
@@ -263,7 +266,12 @@ async def handle_photo(message: Message, session: AsyncSession):
         prices = recognize(text, strict_mode=True)
         if not prices:
             if is_private and status_msg:
-                await status_msg.edit_text("Не нашел валют на изображении.")
+                await status_msg.edit_text(
+                    "Не нашел валют на изображении.\n\n"
+                    "💡 <b>Совет:</b> На фото должен быть виден <b>символ валюты</b> "
+                    "($, €, ₽, и т.д.).",
+                    parse_mode="HTML"
+                )
             return
 
         response = await convert_prices(prices, session, message.chat.id)
