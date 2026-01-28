@@ -45,7 +45,8 @@ async def get_target_currencies(session: AsyncSession, chat_id: int) -> List[str
 
     # Cache miss or expired
     settings = await get_chat_settings(session, chat_id)
-    currencies = list(settings.target_currencies)
+    # Convert to tuple for immutable storage
+    currencies = tuple(settings.target_currencies)
 
     _settings_cache[chat_id] = (now, currencies)
     return list(currencies)
