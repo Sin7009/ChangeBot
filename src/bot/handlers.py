@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, BufferedInputFile
+from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandStart, CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,6 +72,14 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
 
 @main_router.message(CommandStart())
 async def cmd_start(message: Message):
+    # UX Improvement: Add buttons for common actions directly in the welcome message
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings"),
+            InlineKeyboardButton(text="🚀 Попробовать Инлайн", switch_inline_query_current_chat="100 USD")
+        ]
+    ])
+
     await message.answer(
         "👋 <b>Привет! Я бот-конвертер валют.</b>\n\n"
         "Просто напиши мне сумму и валюту, и я переведу её.\n\n"
@@ -81,8 +89,17 @@ async def cmd_start(message: Message):
         "• <code>косарь</code>\n\n"
         "⚙️ Настройки: /settings\n"
         "📈 Графики: /chart USD",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=keyboard
     )
+
+@main_router.callback_query(F.data == "open_settings")
+async def on_open_settings(callback: CallbackQuery, session: AsyncSession):
+    # Reuse settings logic from command
+    target_currencies = await get_target_currencies(session, callback.message.chat.id)
+    keyboard = settings_keyboard(callback.message.chat.id, target_currencies)
+    await callback.message.answer("Выберите валюты для конвертации:", reply_markup=keyboard)
+    await callback.answer()
 
 @main_router.message(Command("settings"))
 async def cmd_settings(message: Message, session: AsyncSession):
