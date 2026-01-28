@@ -52,7 +52,8 @@ async def test_toggle_currency_updates_cache():
 
         # Populate cache with future expiration
         import time
-        _settings_cache[chat_id] = (time.time() + 1000, ["USD"])
+        # Use tuple for cache injection
+        _settings_cache[chat_id] = (time.time() + 1000, ("USD",))
 
         # Toggle currency
         # toggle_currency calls get_chat_settings internally too
@@ -65,5 +66,7 @@ async def test_toggle_currency_updates_cache():
 
         # Check if cache is updated in dal
         cached_time, cached_data = _settings_cache[chat_id]
+        # Check that cache contains tuple
+        assert isinstance(cached_data, tuple)
         assert "EUR" in cached_data
         assert "USD" in cached_data

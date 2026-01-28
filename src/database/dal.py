@@ -51,8 +51,10 @@ async def get_target_currencies(session: AsyncSession, chat_id: int) -> Sequence
     # Convert to tuple for immutable storage
     currencies = tuple(settings.target_currencies)
 
-    _settings_cache[chat_id] = (now, currencies)
-    return currencies
+    # OPTIMIZATION: Convert to tuple for storage
+    currencies_tuple = tuple(currencies)
+    _settings_cache[chat_id] = (now, currencies_tuple)
+    return currencies_tuple
 
 async def toggle_currency(session: AsyncSession, chat_id: int, currency_code: str) -> List[str]:
     """
