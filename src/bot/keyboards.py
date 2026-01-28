@@ -1,3 +1,4 @@
+from typing import Sequence
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -21,7 +22,7 @@ def get_currency_label(currency: str) -> str:
     flag = CURRENCY_FLAGS.get(currency, "💰")
     return f"{flag} {currency}"
 
-def settings_keyboard(chat_id: int, current_currencies: list[str]) -> InlineKeyboardMarkup:
+def settings_keyboard(chat_id: int, current_currencies: Sequence[str]) -> InlineKeyboardMarkup:
     # Supported currencies to toggle
     SUPPORTED_CURRENCIES = list(CURRENCY_FLAGS.keys())
 

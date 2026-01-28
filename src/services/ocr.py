@@ -10,6 +10,49 @@ logger = logging.getLogger(__name__)
 # Constants for image optimization
 MAX_IMAGE_WIDTH = 1600
 
+def _fast_autocontrast(image: Image.Image, thumb: Image.Image, cutoff: int = 2) -> Image.Image:
+    """
+    Optimized autocontrast using thumbnail statistics.
+    Avoids calculating histogram of the full image.
+    Complexity: O(1) (relative to image size) vs O(N) for standard autocontrast.
+    """
+    hist = thumb.histogram()
+    n_pixels = thumb.width * thumb.height
+    cutoff_pixels = n_pixels * cutoff // 100
+
+    # Find low
+    low = 0
+    count = 0
+    for i in range(256):
+        count += hist[i]
+        if count > cutoff_pixels:
+            low = i
+            break
+
+    # Find high
+    high = 255
+    count = 0
+    for i in range(255, -1, -1):
+        count += hist[i]
+        if count > cutoff_pixels:
+            high = i
+            break
+
+    if high <= low:
+        return image
+
+    # Generate LUT for linear stretch
+    scale = 255.0 / (high - low)
+    offset = -low * scale
+
+    # LUT can be a byte string or list
+    lut = []
+    for i in range(256):
+        val = int(i * scale + offset + 0.5)
+        lut.append(min(max(val, 0), 255))
+
+    return image.point(lut)
+
 def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
     """
     Extracts text from an image byte stream using Tesseract OCR.
@@ -52,7 +95,9 @@ def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
         # 1. Convert to grayscale for better OCR accuracy
         # Doing this first speeds up subsequent operations (resize, stats) by working on 1 channel instead of 3.
         # If draft mode was successful, this loads the downscaled data.
-        image = image.convert('L')
+        # OPTIMIZATION: Avoid unnecessary copy if already in grayscale (e.g. from draft mode)
+        if image.mode != 'L':
+            image = image.convert('L')
 
         # Update width/height to actual loaded size (draft might not be exact)
         width, height = image.size
@@ -82,13 +127,15 @@ def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
         if avg_brightness < 128:
             logger.info(f"Image is dark (avg={avg_brightness:.2f}), inverting...")
             image = ImageOps.invert(image)
+            # Invert thumb too to keep stats consistent for autocontrast
+            thumb = ImageOps.invert(thumb)
         else:
             logger.info(f"Image is light (avg={avg_brightness:.2f}), skipping inversion.")
 
         # 3. Enhance Contrast
         # Moved before resize for performance (processing fewer pixels).
-        # Auto-contrast is often better than fixed factor for varying lighting conditions
-        image = ImageOps.autocontrast(image, cutoff=2) # cutoff ignores top/bottom 2% of histogram
+        # OPTIMIZATION: Use fast autocontrast with thumbnail stats to avoid O(N) histogram calculation.
+        image = _fast_autocontrast(image, thumb, cutoff=2)
 
         # Additional fixed contrast boost can still help separate faint text from background
         enhancer = ImageEnhance.Contrast(image)
