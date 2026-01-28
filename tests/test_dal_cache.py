@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.database.dal import get_target_currencies, toggle_currency, _settings_cache, CACHE_TTL
+from src.database.dal import get_target_currencies, toggle_currency, _settings_cache, _CACHE_TTL
 
 @pytest.mark.asyncio
 async def test_get_target_currencies_caching():
@@ -32,7 +32,7 @@ async def test_get_target_currencies_caching():
         # 3. Cache expiration (simulate)
         import time
         # Store tuple in cache simulation
-        _settings_cache[chat_id] = (time.time() - CACHE_TTL - 1, ("OLD",))
+        _settings_cache[chat_id] = (time.time() - _CACHE_TTL - 1, ("OLD",))
 
         currencies_3 = await get_target_currencies(mock_session, chat_id)
         assert currencies_3 == ("USD", "EUR")  # Should fetch fresh

@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Sequence
 import time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,8 +7,8 @@ from src.database.models import ChatSettings
 
 DEFAULT_CURRENCIES = ["USD", "EUR", "RUB"]
 
-# Cache: chat_id -> (timestamp, [currencies])
-_settings_cache: Dict[int, Tuple[float, List[str]]] = {}
+# Cache: chat_id -> (timestamp, currencies)
+_settings_cache: Dict[int, Tuple[float, Sequence[str]]] = {}
 _CACHE_TTL = 300  # 5 minutes
 
 async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings:
@@ -32,7 +32,7 @@ async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings
 
     return settings
 
-async def get_target_currencies(session: AsyncSession, chat_id: int) -> List[str]:
+async def get_target_currencies(session: AsyncSession, chat_id: int) -> Sequence[str]:
     """
     Retrieves the list of target currencies for a chat, using an in-memory cache.
     This avoids DB queries for every message in high-traffic chats.
@@ -41,7 +41,7 @@ async def get_target_currencies(session: AsyncSession, chat_id: int) -> List[str
     if chat_id in _settings_cache:
         timestamp, currencies = _settings_cache[chat_id]
         if now - timestamp < _CACHE_TTL:
-            return list(currencies) # Return copy to prevent mutation
+            return currencies # Zero-copy return (immutable tuple)
 
     # Cache miss or expired
     settings = await get_chat_settings(session, chat_id)
@@ -49,7 +49,7 @@ async def get_target_currencies(session: AsyncSession, chat_id: int) -> List[str
     currencies = tuple(settings.target_currencies)
 
     _settings_cache[chat_id] = (now, currencies)
-    return list(currencies)
+    return currencies
 
 async def toggle_currency(session: AsyncSession, chat_id: int, currency_code: str) -> List[str]:
     """
@@ -75,6 +75,6 @@ async def toggle_currency(session: AsyncSession, chat_id: int, currency_code: st
     await session.refresh(settings)
 
     # Update cache
-    _settings_cache[chat_id] = (time.time(), list(settings.target_currencies))
+    _settings_cache[chat_id] = (time.time(), tuple(settings.target_currencies))
 
     return settings.target_currencies
