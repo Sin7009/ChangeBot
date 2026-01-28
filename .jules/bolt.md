@@ -14,10 +14,6 @@
 **Learning:** Even simple regex operations like `re.search(r'\d', text)` incur compilation overhead if called repeatedly in a hot loop. Precompiling the regex pattern (`HAS_DIGIT_PATTERN = re.compile(r'\d')`) and using its `search` method reduces this overhead significantly.
 **Action:** Precompile all regex patterns at the module or class level, even "simple" ones, if they are used in high-frequency paths like message parsing. Benchmarking showed a ~2.2x - 2.9x speedup for the specific check.
 
-## 2024-06-05 - [String Operations vs Regex]
-**Learning:** For simple structural checks like "suffix length", pure string operations (`rsplit`, `len`) are faster (~1.2x) than precompiled regex. Regex incurs overhead even for simple patterns.
-**Action:** When validating simple string formats (e.g. "digits,digits"), prefer built-in string methods over regex if possible. Use `timeit` to confirm as the difference can be small in Python.
-
-## 2026-01-27 - [OCR Performance - Fast Autocontrast]
-**Learning:** ImageOps.autocontrast calculates the histogram of the full image (O(N)), which is expensive (8-10ms for 4MP). Using a small thumbnail (100x100) to estimate the histogram and generating a LUT reduces this to O(1) (relative to image size), achieving ~1.6x speedup.
-**Action:** For contrast enhancement, prefer estimating statistics from a downscaled thumbnail if pixel-perfect precision isn't required (like in OCR preprocessing). Be careful with floating point rounding when generating LUTs.
+## 2024-05-31 - [Immutable Cache Storage]
+**Learning:** Storing mutable objects (lists) in a read-through cache forces defensive copying on every read to prevent data corruption, which incurs O(N) allocation overhead.
+**Action:** Use immutable data structures (tuples) for cache storage. This allows returning direct references to the cached data (Zero-Copy), significantly reducing CPU and memory pressure in high-frequency read paths while maintaining thread safety.

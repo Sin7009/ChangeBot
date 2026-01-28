@@ -7,8 +7,8 @@ from src.database.models import ChatSettings
 
 DEFAULT_CURRENCIES = ["USD", "EUR", "RUB"]
 
-# Simple cache: chat_id -> (timestamp, target_currencies)
-# OPTIMIZATION: Store as tuple to allow zero-copy returns
+# Simple cache: chat_id -> (timestamp, target_currencies_tuple)
+# OPTIMIZATION: Use Tuple for immutable cache storage to allow safe zero-copy reads.
 _settings_cache: Dict[int, Tuple[float, Tuple[str, ...]]] = {}
 CACHE_TTL = 300  # 5 minutes
 
@@ -36,22 +36,20 @@ async def get_chat_settings(session: AsyncSession, chat_id: int) -> ChatSettings
 async def get_target_currencies(session: AsyncSession, chat_id: int) -> Sequence[str]:
     """
     Retrieves the list of target currencies for a chat, using a read-through cache.
-    This avoids database queries for every message in active chats.
-
-    Returns a read-only sequence (tuple) to avoid list copy overhead.
+    Returns an immutable sequence (tuple) to safely avoid copying.
     """
     now = time.time()
     if chat_id in _settings_cache:
         timestamp, data = _settings_cache[chat_id]
         if now - timestamp < CACHE_TTL:
-            # OPTIMIZATION: Return tuple directly.
-            # Since it's immutable, we don't need to copy it like list(data).
-            # This saves an O(N) allocation on every message.
+            # OPTIMIZATION: Return direct reference to immutable tuple.
+            # Zero-copy read is safe because data is immutable.
             return data
 
     # Cache miss
     settings = await get_chat_settings(session, chat_id)
-    currencies = list(settings.target_currencies)
+    # Convert to tuple for immutable storage
+    currencies = tuple(settings.target_currencies)
 
     # OPTIMIZATION: Convert to tuple for storage
     currencies_tuple = tuple(currencies)
@@ -81,7 +79,7 @@ async def toggle_currency(session: AsyncSession, chat_id: int, currency_code: st
     await session.commit()
     await session.refresh(settings)
 
-    # Update cache
+    # Update cache with tuple
     _settings_cache[chat_id] = (time.time(), tuple(settings.target_currencies))
 
     return settings.target_currencies
