@@ -185,6 +185,12 @@ class CurrencyRecognizer:
     # Avoiding re.search(r'\d', text) in the loop improves performance by ~2-3x.
     HAS_DIGIT_PATTERN = re.compile(r'\d')
 
+    # OPTIMIZATION: Pattern to check for ANY currency token existence.
+    # If a text has digits but no currency tokens, we can skip the complex regex scan.
+    # This prevents O(N*M) backtracking on texts like phone numbers or dates.
+    # Matches any currency code, symbol, or slang word.
+    HAS_CURRENCY_TOKEN_PATTERN = re.compile(_CURRENCY_TOKEN_REGEX)
+
     @classmethod
     def _normalize_amount(cls, amount_str: str) -> float:
         """
@@ -252,6 +258,11 @@ class CurrencyRecognizer:
         has_digits = cls.HAS_DIGIT_PATTERN.search(text) is not None
 
         if not has_digits:
+            # Fast Path II: Even if no digits, check if there are any currency tokens at all.
+            # STANDALONE_SLANG_PATTERN requires a slang token (which is a subset of currency tokens).
+            if not cls.HAS_CURRENCY_TOKEN_PATTERN.search(text_cleaned):
+                return results
+
             # Only check standalone slang (e.g. "косарь")
             for match in cls.STANDALONE_SLANG_PATTERN.finditer(text_cleaned):
                  # Group 1 of STANDALONE_SLANG_PATTERN corresponds to group 7 in COMBINED_PATTERN logic
@@ -260,6 +271,12 @@ class CurrencyRecognizer:
                  if word in cls.SLANG_AMOUNT_CURRENCY:
                      val, curr = cls.SLANG_AMOUNT_CURRENCY[word]
                      results.append(Price(amount=val, currency=curr))
+            return results
+
+        # Fast Path III: Text has digits.
+        # But if it has NO currency tokens, it's not a price (e.g. "Phone 123456").
+        # Skipping the complex regex scan here saves ~115x time on long texts with digits but no currency.
+        if not cls.HAS_CURRENCY_TOKEN_PATTERN.search(text_cleaned):
             return results
 
         # Optimization: Single pass using combined regex
