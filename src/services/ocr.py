@@ -1,6 +1,6 @@
 import io
 import logging
-from typing import Optional, Union
+from typing import Optional, Union, Tuple, List
 
 from PIL import Image, ImageEnhance, ImageOps, ImageStat
 import pytesseract
@@ -10,11 +10,10 @@ logger = logging.getLogger(__name__)
 # Constants for image optimization
 MAX_IMAGE_WIDTH = 1600
 
-def _fast_autocontrast(image: Image.Image, thumb: Image.Image, cutoff: int = 2) -> Image.Image:
+def _get_autocontrast_params(thumb: Image.Image, cutoff: int = 2) -> Optional[Tuple[float, float]]:
     """
-    Optimized autocontrast using thumbnail statistics.
-    Avoids calculating histogram of the full image.
-    Complexity: O(1) (relative to image size) vs O(N) for standard autocontrast.
+    Calculates autocontrast parameters (scale, offset) using thumbnail statistics.
+    Returns None if no stretching is needed.
     """
     hist = thumb.histogram()
     n_pixels = thumb.width * thumb.height
@@ -39,19 +38,46 @@ def _fast_autocontrast(image: Image.Image, thumb: Image.Image, cutoff: int = 2) 
             break
 
     if high <= low:
-        return image
+        return None
 
-    # Generate LUT for linear stretch
     scale = 255.0 / (high - low)
     offset = -low * scale
+    return scale, offset
 
-    # LUT can be a byte string or list
+def _build_combined_lut(
+    invert: bool,
+    ac_params: Optional[Tuple[float, float]],
+    contrast_factor: float = 1.0,
+    contrast_center: float = 128.0
+) -> List[int]:
+    """
+    Builds a single Look-Up Table (LUT) combining Inversion, Autocontrast, and Fixed Contrast.
+    """
     lut = []
-    for i in range(256):
-        val = int(i * scale + offset + 0.5)
-        lut.append(min(max(val, 0), 255))
+    ac_scale, ac_offset = ac_params if ac_params else (1.0, 0.0)
 
-    return image.point(lut)
+    for i in range(256):
+        val = i
+
+        # 1. Invert
+        if invert:
+            val = 255 - val
+
+        # 2. Autocontrast
+        if ac_params:
+            val = int(val * ac_scale + ac_offset + 0.5)
+            # Clamp after linear stretch
+            val = max(0, min(255, val))
+
+        # 3. Contrast Enhancement
+        # Formula: mean + (value - mean) * factor
+        if contrast_factor != 1.0:
+            val = int(contrast_center + (val - contrast_center) * contrast_factor)
+            val = max(0, min(255, val))
+
+        lut.append(val)
+
+    return lut
 
 def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
     """
@@ -115,31 +141,56 @@ def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
             # Update width/height for subsequent logic
             width, height = new_size
 
-        # 2. Detect Dark Mode and Invert
-        # Calculate mean brightness
-        # OPTIMIZATION: Use a small thumbnail for brightness calculation to avoid scanning all pixels.
-        # This reduces complexity from O(W*H) to O(1) (fixed size 100x100).
-        # Using NEAREST resampling is sufficient for average brightness and fastest.
+        # 2. Preprocessing Logic (Invert -> Autocontrast -> Enhance)
+        # OPTIMIZATION: Combine all pixel-wise operations into a single LUT to avoid multiple passes.
+        # Previous approach: Invert (1 pass) -> Autocontrast (1 pass) -> Enhance (1 pass)
+        # New approach: Calculate combined LUT -> Apply (1 pass)
+
+        # A. Calculate stats from thumbnail (O(1))
         thumb = image.resize((100, 100), Image.Resampling.NEAREST)
         stat = ImageStat.Stat(thumb)
         avg_brightness = stat.mean[0]
 
+        # B. Determine Inversion
+        invert = False
         if avg_brightness < 128:
-            logger.info(f"Image is dark (avg={avg_brightness:.2f}), inverting...")
-            image = ImageOps.invert(image)
-            # Invert thumb too to keep stats consistent for autocontrast
+            logger.info(f"Image is dark (avg={avg_brightness:.2f}), will invert.")
+            invert = True
+            # Invert thumb stats logically or actually invert thumb for AC calculation
             thumb = ImageOps.invert(thumb)
+            # Update mean to reflect inversion
+            avg_brightness = 255 - avg_brightness
         else:
             logger.info(f"Image is light (avg={avg_brightness:.2f}), skipping inversion.")
 
-        # 3. Enhance Contrast
-        # Moved before resize for performance (processing fewer pixels).
-        # OPTIMIZATION: Use fast autocontrast with thumbnail stats to avoid O(N) histogram calculation.
-        image = _fast_autocontrast(image, thumb, cutoff=2)
+        # C. Calculate Autocontrast params
+        ac_params = _get_autocontrast_params(thumb, cutoff=2)
 
-        # Additional fixed contrast boost can still help separate faint text from background
-        enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(1.5)
+        # D. Calculate Contrast Center (Mean of the image AFTER Autocontrast)
+        # We need the mean to apply fixed contrast enhancement properly.
+        # If we just used 128, it might be off if the image is still skewed.
+        contrast_center = 128.0 # Default fallback
+
+        if ac_params:
+            scale, offset = ac_params
+            # Estimate new mean by applying linear transform to the old mean
+            # This is an approximation since it ignores clamping, but usually sufficient for contrast center.
+            # Alternatively, we could apply point() to thumb (fast) and remeasure.
+            # Let's apply to thumb for accuracy as thumb is small (100x100).
+            thumb_ac = thumb.point(lambda i: int(i * scale + offset + 0.5))
+            contrast_center = ImageStat.Stat(thumb_ac).mean[0]
+        else:
+            contrast_center = avg_brightness
+
+        # E. Build and Apply Combined LUT
+        lut = _build_combined_lut(
+            invert=invert,
+            ac_params=ac_params,
+            contrast_factor=1.5,
+            contrast_center=contrast_center
+        )
+
+        image = image.point(lut)
 
         # 4. Resize if too small (upscaling helps Tesseract detect characters)
         if width < 1000:

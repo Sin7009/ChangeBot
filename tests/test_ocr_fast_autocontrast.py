@@ -1,17 +1,13 @@
 import unittest
 from unittest.mock import MagicMock
 from PIL import Image
-from src.services.ocr import _fast_autocontrast
+from src.services.ocr import _get_autocontrast_params, _build_combined_lut
 
-class TestOCRFastAutocontrast(unittest.TestCase):
-    def test_fast_autocontrast_stretches_contrast(self):
+class TestOCRCombinedLUT(unittest.TestCase):
+    def test_get_autocontrast_params_stretches_contrast(self):
         """
-        Test that _fast_autocontrast applies a LUT that stretches contrast.
+        Test that _get_autocontrast_params calculates correct scale and offset.
         """
-        # Create a mock image
-        mock_image = MagicMock(spec=Image.Image)
-        mock_image.point.return_value = "processed_image"
-
         # Create a mock thumb
         mock_thumb = MagicMock(spec=Image.Image)
         mock_thumb.width = 10
@@ -19,12 +15,6 @@ class TestOCRFastAutocontrast(unittest.TestCase):
         # 100 pixels total
 
         # Mock histogram:
-        # 0-50: 0
-        # 51-100: scattered
-        # 100-200: 0
-        # 201-255: scattered
-
-        # To make it simple:
         # 50 pixels at value 100
         # 50 pixels at value 200
         hist = [0] * 256
@@ -38,29 +28,18 @@ class TestOCRFastAutocontrast(unittest.TestCase):
         # Scale = 255 / (200 - 100) = 2.55
         # Offset = -100 * 2.55 = -255
 
-        # Value 100 -> 100 * 2.55 - 255 = 0
-        # Value 150 -> 150 * 2.55 - 255 = 382.5 - 255 = 127.5
-        # Value 200 -> 200 * 2.55 - 255 = 510 - 255 = 255
+        params = _get_autocontrast_params(mock_thumb, cutoff=2)
 
-        result = _fast_autocontrast(mock_image, mock_thumb, cutoff=2)
+        self.assertIsNotNone(params)
+        scale, offset = params
 
-        self.assertEqual(result, "processed_image")
-        mock_image.point.assert_called_once()
+        self.assertAlmostEqual(scale, 2.55)
+        self.assertAlmostEqual(offset, -255.0)
 
-        # Inspect the LUT passed to point()
-        lut = mock_image.point.call_args[0][0]
-        self.assertEqual(len(lut), 256)
-
-        # Check specific values
-        self.assertEqual(lut[100], 0)
-        self.assertEqual(lut[200], 255)
-        self.assertTrue(120 <= lut[150] <= 135) # Approx 127/128
-
-    def test_fast_autocontrast_flat_image(self):
+    def test_get_autocontrast_params_flat_image(self):
         """
-        Test that _fast_autocontrast returns original image if histogram is flat (high <= low).
+        Test that _get_autocontrast_params returns None if histogram is flat.
         """
-        mock_image = MagicMock(spec=Image.Image)
         mock_thumb = MagicMock(spec=Image.Image)
         mock_thumb.width = 10
         mock_thumb.height = 10
@@ -70,13 +49,95 @@ class TestOCRFastAutocontrast(unittest.TestCase):
         hist[128] = 100
         mock_thumb.histogram.return_value = hist
 
-        # Low = 128, High = 128
+        params = _get_autocontrast_params(mock_thumb, cutoff=2)
 
-        result = _fast_autocontrast(mock_image, mock_thumb, cutoff=2)
+        self.assertIsNone(params)
 
-        # Should return original image without calling point()
-        self.assertEqual(result, mock_image)
-        mock_image.point.assert_not_called()
+    def test_build_combined_lut_inversion(self):
+        """
+        Test that LUT handles inversion correctly.
+        """
+        lut = _build_combined_lut(
+            invert=True,
+            ac_params=None,
+            contrast_factor=1.0,
+            contrast_center=128.0
+        )
+
+        # 0 -> 255
+        self.assertEqual(lut[0], 255)
+        # 255 -> 0
+        self.assertEqual(lut[255], 0)
+        # 128 -> 127 (255 - 128)
+        self.assertEqual(lut[128], 127)
+
+    def test_build_combined_lut_autocontrast(self):
+        """
+        Test that LUT handles autocontrast params correctly.
+        """
+        # Scale = 2.0, Offset = -100.0
+        # 0 -> 0*2 - 100 = -100 -> clamped 0
+        # 50 -> 50*2 - 100 = 0 -> 0
+        # 100 -> 100*2 - 100 = 100 -> 100
+        # 150 -> 150*2 - 100 = 200 -> 200
+        # 200 -> 200*2 - 100 = 300 -> clamped 255
+
+        lut = _build_combined_lut(
+            invert=False,
+            ac_params=(2.0, -100.0),
+            contrast_factor=1.0,
+            contrast_center=128.0
+        )
+
+        self.assertEqual(lut[0], 0)
+        self.assertEqual(lut[50], 0)
+        self.assertEqual(lut[100], 100)
+        self.assertEqual(lut[150], 200)
+        self.assertEqual(lut[200], 255)
+
+    def test_build_combined_lut_contrast_enhance(self):
+        """
+        Test that LUT handles contrast enhancement correctly.
+        """
+        # Factor = 1.5, Center = 100
+        # val = 100 + (val - 100) * 1.5
+
+        # 100 -> 100 + 0 = 100
+        # 120 -> 100 + 20*1.5 = 130
+        # 80 -> 100 - 20*1.5 = 70
+
+        lut = _build_combined_lut(
+            invert=False,
+            ac_params=None,
+            contrast_factor=1.5,
+            contrast_center=100.0
+        )
+
+        self.assertEqual(lut[100], 100)
+        self.assertEqual(lut[120], 130)
+        self.assertEqual(lut[80], 70)
+
+    def test_build_combined_lut_all(self):
+        """
+        Test combined pipeline: Invert -> Autocontrast -> Enhance
+        """
+        # Invert: val = 255 - val
+        # AC: Scale=2, Offset=0 -> val = val * 2
+        # Enhance: Factor=1.5, Center=128 -> val = 128 + (val - 128) * 1.5
+
+        lut = _build_combined_lut(
+            invert=True,
+            ac_params=(2.0, 0.0),
+            contrast_factor=1.5,
+            contrast_center=128.0
+        )
+
+        # Input 200
+        # 1. Invert: 255 - 200 = 55
+        # 2. AC: 55 * 2 = 110
+        # 3. Enhance: 128 + (110 - 128) * 1.5 = 128 + (-18 * 1.5) = 128 - 27 = 101
+
+        self.assertEqual(lut[200], 101)
 
 if __name__ == "__main__":
     unittest.main()
