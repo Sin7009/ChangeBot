@@ -9,3 +9,7 @@
 ## 2024-05-25 - Onboarding Actionability
 **Learning:** The `/start` command often lists text commands which users must type manually. Adding an Inline Keyboard with direct actions (e.g., "Settings", "Try Inline") immediately lowers the friction to engagement and teaches features by doing.
 **Action:** Enhance welcome messages with interactive buttons for the most common or "hero" features to encourage immediate exploration.
+
+## 2024-05-26 - Quick-Pick for Empty States
+**Learning:** Commands like `/chart` that require arguments often result in a "dead end" usage error when typed alone. Providing a default "Quick-Pick" keyboard with popular options transforms an error state into a useful shortcut.
+**Action:** When a command with required arguments is invoked without them, default to showing an interactive selection menu instead of just a text error.
