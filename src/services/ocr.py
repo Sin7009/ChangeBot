@@ -10,17 +10,21 @@ logger = logging.getLogger(__name__)
 # Constants for image optimization
 MAX_IMAGE_WIDTH = 1600
 
-def _fast_autocontrast(image: Image.Image, thumb: Image.Image, cutoff: int = 2) -> Image.Image:
+def _build_combined_lut(thumb: Image.Image, cutoff: int = 2, contrast_factor: float = 1.5):
     """
-    Optimized autocontrast using thumbnail statistics.
-    Avoids calculating histogram of the full image.
-    Complexity: O(1) (relative to image size) vs O(N) for standard autocontrast.
+    Builds a Lookup Table (LUT) that combines Autocontrast and Contrast Enhancement.
+
+    Merges two operations:
+    1. Autocontrast (Histogram stretching)
+    2. Contrast Enhancement (Linear transform around the mean)
+
+    Uses thumbnail statistics to estimate parameters, avoiding O(N) scans of the full image.
     """
     hist = thumb.histogram()
     n_pixels = thumb.width * thumb.height
     cutoff_pixels = n_pixels * cutoff // 100
 
-    # Find low
+    # Find low (Autocontrast)
     low = 0
     count = 0
     for i in range(256):
@@ -29,7 +33,7 @@ def _fast_autocontrast(image: Image.Image, thumb: Image.Image, cutoff: int = 2) 
             low = i
             break
 
-    # Find high
+    # Find high (Autocontrast)
     high = 255
     count = 0
     for i in range(255, -1, -1):
@@ -39,19 +43,37 @@ def _fast_autocontrast(image: Image.Image, thumb: Image.Image, cutoff: int = 2) 
             break
 
     if high <= low:
-        return image
+        scale = 1.0
+        offset = 0.0
+    else:
+        scale = 255.0 / (high - low)
+        offset = -low * scale
 
-    # Generate LUT for linear stretch
-    scale = 255.0 / (high - low)
-    offset = -low * scale
+    # Calculate Expected Mean of the image AFTER Autocontrast (using thumb histogram)
+    # This avoids scanning the full image to find the mean for Contrast Enhancement.
+    sum_val = 0
+    for i in range(256):
+        # Value mapping after autocontrast
+        val = i * scale + offset
+        val = min(max(val, 0), 255)
+        sum_val += val * hist[i]
 
-    # LUT can be a byte string or list
+    mean = sum_val / n_pixels if n_pixels > 0 else 128.0
+
+    # Build Combined LUT
     lut = []
     for i in range(256):
-        val = int(i * scale + offset + 0.5)
-        lut.append(min(max(val, 0), 255))
+        # 1. Autocontrast
+        ac_val = i * scale + offset
+        ac_val = min(max(ac_val, 0), 255)
 
-    return image.point(lut)
+        # 2. Contrast Enhance (around mean)
+        # Formula: val = mean + factor * (x - mean)
+        final_val = mean + contrast_factor * (ac_val - mean)
+
+        lut.append(int(min(max(final_val + 0.5, 0), 255)))
+
+    return lut
 
 def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
     """
@@ -132,14 +154,13 @@ def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
         else:
             logger.info(f"Image is light (avg={avg_brightness:.2f}), skipping inversion.")
 
-        # 3. Enhance Contrast
+        # 3. Enhance Contrast & Autocontrast
         # Moved before resize for performance (processing fewer pixels).
-        # OPTIMIZATION: Use fast autocontrast with thumbnail stats to avoid O(N) histogram calculation.
-        image = _fast_autocontrast(image, thumb, cutoff=2)
-
-        # Additional fixed contrast boost can still help separate faint text from background
-        enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(1.5)
+        # OPTIMIZATION: Combine Autocontrast and Contrast Enhancement into a single LUT.
+        # This saves one full image pass (image.point) and avoids the O(N) mean calculation
+        # that ImageEnhance.Contrast(image) would otherwise perform on the full image.
+        combined_lut = _build_combined_lut(thumb, cutoff=2, contrast_factor=1.5)
+        image = image.point(combined_lut)
 
         # 4. Resize if too small (upscaling helps Tesseract detect characters)
         if width < 1000:

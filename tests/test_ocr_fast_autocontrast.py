@@ -1,32 +1,21 @@
 import unittest
 from unittest.mock import MagicMock
 from PIL import Image
-from src.services.ocr import _fast_autocontrast
+from src.services.ocr import _build_combined_lut
 
-class TestOCRFastAutocontrast(unittest.TestCase):
-    def test_fast_autocontrast_stretches_contrast(self):
+class TestOCRCombinedLUT(unittest.TestCase):
+    def test_combined_lut_autocontrast_only(self):
         """
-        Test that _fast_autocontrast applies a LUT that stretches contrast.
+        Test that _build_combined_lut acts as autocontrast when contrast_factor is 1.0.
         """
-        # Create a mock image
-        mock_image = MagicMock(spec=Image.Image)
-        mock_image.point.return_value = "processed_image"
-
-        # Create a mock thumb
         mock_thumb = MagicMock(spec=Image.Image)
         mock_thumb.width = 10
         mock_thumb.height = 10
-        # 100 pixels total
 
         # Mock histogram:
         # 0-50: 0
-        # 51-100: scattered
-        # 100-200: 0
-        # 201-255: scattered
-
-        # To make it simple:
-        # 50 pixels at value 100
-        # 50 pixels at value 200
+        # 100: 50 pixels
+        # 200: 50 pixels
         hist = [0] * 256
         hist[100] = 50
         hist[200] = 50
@@ -35,32 +24,27 @@ class TestOCRFastAutocontrast(unittest.TestCase):
 
         # Cutoff = 2% (2 pixels)
         # Low should be 100. High should be 200.
-        # Scale = 255 / (200 - 100) = 2.55
-        # Offset = -100 * 2.55 = -255
+        # Scale = 255 / (100) = 2.55
+        # Offset = -255
 
-        # Value 100 -> 100 * 2.55 - 255 = 0
-        # Value 150 -> 150 * 2.55 - 255 = 382.5 - 255 = 127.5
-        # Value 200 -> 200 * 2.55 - 255 = 510 - 255 = 255
+        # With factor=1.0, it should be pure autocontrast.
+        lut = _build_combined_lut(mock_thumb, cutoff=2, contrast_factor=1.0)
 
-        result = _fast_autocontrast(mock_image, mock_thumb, cutoff=2)
-
-        self.assertEqual(result, "processed_image")
-        mock_image.point.assert_called_once()
-
-        # Inspect the LUT passed to point()
-        lut = mock_image.point.call_args[0][0]
         self.assertEqual(len(lut), 256)
 
-        # Check specific values
+        # Value 100 -> 0
         self.assertEqual(lut[100], 0)
+        # Value 200 -> 255
         self.assertEqual(lut[200], 255)
-        self.assertTrue(120 <= lut[150] <= 135) # Approx 127/128
 
-    def test_fast_autocontrast_flat_image(self):
+        # Value 150 -> 127/128
+        # 150 * 2.55 - 255 = 127.5
+        self.assertTrue(127 <= lut[150] <= 128)
+
+    def test_combined_lut_flat_image(self):
         """
-        Test that _fast_autocontrast returns original image if histogram is flat (high <= low).
+        Test that _build_combined_lut handles flat histograms.
         """
-        mock_image = MagicMock(spec=Image.Image)
         mock_thumb = MagicMock(spec=Image.Image)
         mock_thumb.width = 10
         mock_thumb.height = 10
@@ -70,13 +54,50 @@ class TestOCRFastAutocontrast(unittest.TestCase):
         hist[128] = 100
         mock_thumb.histogram.return_value = hist
 
-        # Low = 128, High = 128
+        # Low = 128, High = 128. Scale = 1.0, Offset = 0.0.
+        # Mean should be 128.
+        # Autocontrast is identity.
+        # Contrast factor 1.5 -> val = 128 + 1.5 * (val - 128)
 
-        result = _fast_autocontrast(mock_image, mock_thumb, cutoff=2)
+        lut = _build_combined_lut(mock_thumb, cutoff=2, contrast_factor=1.5)
 
-        # Should return original image without calling point()
-        self.assertEqual(result, mock_image)
-        mock_image.point.assert_not_called()
+        # At 128, result should be 128
+        self.assertEqual(lut[128], 128)
+
+        # At 100:
+        # ac_val = 100
+        # final = 128 + 1.5 * (100 - 128) = 128 + 1.5 * (-28) = 128 - 42 = 86
+        self.assertEqual(lut[100], 86)
+
+    def test_combined_lut_contrast_enhance(self):
+        """
+        Test that contrast factor affects the output.
+        """
+        mock_thumb = MagicMock(spec=Image.Image)
+        mock_thumb.width = 10
+        mock_thumb.height = 10
+
+        # Uniform distribution (approx)
+        hist = [1] * 256 # total 256 pixels?
+        mock_thumb.width = 16
+        mock_thumb.height = 16
+
+        mock_thumb.histogram.return_value = hist # fake hist but okay
+
+        # Low ~ 2, High ~ 253 (approx full range)
+        # Scale ~ 1.0
+
+        lut_normal = _build_combined_lut(mock_thumb, cutoff=0, contrast_factor=1.0)
+        lut_high = _build_combined_lut(mock_thumb, cutoff=0, contrast_factor=2.0)
+
+        # At middle (128), both should be close to 128
+        self.assertTrue(abs(lut_normal[128] - 128) < 2)
+        self.assertTrue(abs(lut_high[128] - 128) < 2)
+
+        # At dark (50):
+        # Normal (factor 1): 50
+        # High (factor 2): 128 + 2 * (50 - 128) = 128 - 156 = -28 -> 0
+        self.assertTrue(lut_high[50] < lut_normal[50])
 
 if __name__ == "__main__":
     unittest.main()

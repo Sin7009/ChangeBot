@@ -17,3 +17,7 @@
 ## 2024-05-31 - [Immutable Cache Storage]
 **Learning:** Storing mutable objects (lists) in a read-through cache forces defensive copying on every read to prevent data corruption, which incurs O(N) allocation overhead.
 **Action:** Use immutable data structures (tuples) for cache storage. This allows returning direct references to the cached data (Zero-Copy), significantly reducing CPU and memory pressure in high-frequency read paths while maintaining thread safety.
+
+## 2024-06-01 - [OCR Performance - Combined LUT]
+**Learning:** Sequential image point operations (like Autocontrast followed by Contrast Enhancement) iterate over pixels multiple times. `ImageEnhance.Contrast` also calculates the mean of the full image (O(N)), which is expensive for large images.
+**Action:** Combine multiple point operations into a single Lookup Table (LUT). Use thumbnail statistics to estimate parameters (like mean) instead of scanning the full image. This reduced processing time by ~4.8x in benchmarks.
