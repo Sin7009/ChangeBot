@@ -9,3 +9,7 @@
 ## 2024-05-25 - Onboarding Actionability
 **Learning:** The `/start` command often lists text commands which users must type manually. Adding an Inline Keyboard with direct actions (e.g., "Settings", "Try Inline") immediately lowers the friction to engagement and teaches features by doing.
 **Action:** Enhance welcome messages with interactive buttons for the most common or "hero" features to encourage immediate exploration.
+
+## 2024-10-24 - Command Argument Discovery
+**Learning:** Commands with mandatory arguments (like `/chart <currency>`) often result in "Usage error" dead-ends for users exploring the bot.
+**Action:** Instead of showing an error message for missing arguments, present a "Quick Pick" interactive keyboard with popular defaults to guide the user and allow immediate success.
