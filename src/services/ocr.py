@@ -46,10 +46,11 @@ def _fast_autocontrast(image: Image.Image, thumb: Image.Image, cutoff: int = 2) 
     offset = -low * scale
 
     # LUT can be a byte string or list
-    lut = []
+    # OPTIMIZATION: Use bytearray for faster allocation and direct consumption by Pillow
+    lut = bytearray(256)
     for i in range(256):
         val = int(i * scale + offset + 0.5)
-        lut.append(min(max(val, 0), 255))
+        lut[i] = min(max(val, 0), 255)
 
     return image.point(lut)
 

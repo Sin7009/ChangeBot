@@ -17,3 +17,7 @@
 ## 2024-05-31 - [Immutable Cache Storage]
 **Learning:** Storing mutable objects (lists) in a read-through cache forces defensive copying on every read to prevent data corruption, which incurs O(N) allocation overhead.
 **Action:** Use immutable data structures (tuples) for cache storage. This allows returning direct references to the cached data (Zero-Copy), significantly reducing CPU and memory pressure in high-frequency read paths while maintaining thread safety.
+
+## 2025-02-18 - [Pillow Performance - LUT Optimization]
+**Learning:** `PIL.Image.point()` accepts a `bytearray` directly, which allows it to consume the buffer at the C-level without iterating over Python objects. Using `bytearray` instead of a list for Lookup Tables (LUTs) avoids Python list resizing and object creation overhead.
+**Action:** When generating LUTs for image processing, pre-allocate `bytearray(256)` and assign values by index instead of appending to a Python list.
