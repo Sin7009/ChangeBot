@@ -46,3 +46,20 @@ def settings_keyboard(chat_id: int, current_currencies: Sequence[str]) -> Inline
     builder.row(InlineKeyboardButton(text="Закрыть", callback_data="close_settings"))
 
     return builder.as_markup()
+
+def chart_quick_pick_keyboard() -> InlineKeyboardMarkup:
+    """Returns a keyboard with popular currencies for quick chart selection."""
+    # Popular currencies for quick access
+    POPULAR = ["USD", "EUR", "CNY", "BTC", "ETH", "TON"]
+
+    builder = InlineKeyboardBuilder()
+
+    for currency in POPULAR:
+        flag = CURRENCY_FLAGS.get(currency, "💰")
+        text = f"{flag} {currency}"
+        callback_data = f"chart_pick_{currency}"
+        builder.button(text=text, callback_data=callback_data)
+
+    builder.adjust(3) # 3 columns
+
+    return builder.as_markup()
