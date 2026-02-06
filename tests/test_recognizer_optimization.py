@@ -39,3 +39,23 @@ class TestRecognizerOptimization:
         # 1,5 rub -> 1.5
         assert results[2].amount == 1.5
         assert results[2].currency == "RUB"
+
+    def test_fast_path_ii_no_currency_tokens(self):
+        # Test case for Fast Path II optimization
+        # Text with digits but no currency tokens should return empty list quickly
+        # and not raise any errors.
+
+        # Phone number format
+        assert CurrencyRecognizer.parse("My phone is +1 555 123 4567") == []
+
+        # Date format
+        assert CurrencyRecognizer.parse("Born in 1990") == []
+
+        # Mathematical expression
+        assert CurrencyRecognizer.parse("2 + 2 = 4") == []
+
+        # Text with numbers
+        assert CurrencyRecognizer.parse("I have 100 apples") == []
+
+        # Text with mixed numbers and words but no currency
+        assert CurrencyRecognizer.parse("Model 1000 and version 2.0") == []

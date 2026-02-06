@@ -185,6 +185,11 @@ class CurrencyRecognizer:
     # Avoiding re.search(r'\d', text) in the loop improves performance by ~2-3x.
     HAS_DIGIT_PATTERN = re.compile(r'\d')
 
+    # OPTIMIZATION: Precompiled pattern for fast currency token checking.
+    # Used in "Fast Path II" to skip complex regex if no relevant tokens are present.
+    # This matches any currency code, symbol, slang, or implied token.
+    HAS_CURRENCY_TOKEN_PATTERN = re.compile(rf'{_CURRENCY_TOKEN_REGEX}')
+
     @classmethod
     def _normalize_amount(cls, amount_str: str) -> float:
         """
@@ -260,6 +265,12 @@ class CurrencyRecognizer:
                  if word in cls.SLANG_AMOUNT_CURRENCY:
                      val, curr = cls.SLANG_AMOUNT_CURRENCY[word]
                      results.append(Price(amount=val, currency=curr))
+            return results
+
+        # OPTIMIZATION: "Fast Path II" - Check for currency tokens
+        # If the text contains digits but NO currency tokens (or slang), we can skip the complex regex scan.
+        # This prevents performance degradation on inputs like phone numbers or dates.
+        if not cls.HAS_CURRENCY_TOKEN_PATTERN.search(text_cleaned):
             return results
 
         # Optimization: Single pass using combined regex
