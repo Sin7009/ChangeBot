@@ -13,7 +13,7 @@ from src.services.rates import rates_service
 from src.services.charts import generate_chart
 from src.services.ocr import image_to_text
 from src.database.dal import get_chat_settings, toggle_currency, get_target_currencies
-from src.bot.keyboards import settings_keyboard, CURRENCY_FLAGS
+from src.bot.keyboards import settings_keyboard, CURRENCY_FLAGS, chart_quick_pick_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -108,25 +108,7 @@ async def cmd_settings(message: Message, session: AsyncSession):
     keyboard = settings_keyboard(message.chat.id, target_currencies)
     await message.answer("Выберите валюты для конвертации:", reply_markup=keyboard)
 
-@main_router.message(Command("chart"))
-async def cmd_chart(message: Message, command: CommandObject):
-    """
-    Handler for /chart <currency>
-    e.g. /chart USD -> chart for USD/RUB
-    """
-    args = command.args
-    if not args:
-        await message.answer("Использование: /chart <код_валюты> (например, USD)")
-        return
-
-    # Input validation: only allow alphanumeric characters to prevent injection
-    currency_raw = args.strip()
-    if not currency_raw.isalnum() or len(currency_raw) > 10:
-        await message.answer("⚠️ Неверный формат валюты. Используйте код валюты (например, USD, EUR)")
-        return
-    
-    currency = currency_raw.upper()
-
+async def _send_chart_impl(message: Message, currency: str):
     # Map common currencies to Yahoo Finance symbols relative to RUB
     # We default to showing X/RUB pairs.
     # Note: Yahoo Finance symbols for currencies are usually "CUR1CUR2=X"
@@ -142,6 +124,10 @@ async def cmd_chart(message: Message, command: CommandObject):
         "GBP": "GBPRUB=X",
         "KZT": "KZTRUB=X",
         "TRY": "TRYRUB=X",
+        # Crypto
+        "BTC": "BTC-RUB",
+        "ETH": "ETH-RUB",
+        "TON": "TON11419-USD", # TON to USD as RUB pair might be unstable or less common?
     }
 
     # If user asks for RUB, maybe they want RUB/USD?
@@ -156,7 +142,10 @@ async def cmd_chart(message: Message, command: CommandObject):
         # e.g. "USDRUB=X"
         ticker = f"{currency}RUB=X"
 
-    status_msg = await message.answer(f"⏳ Получаю данные и строю график {currency}/RUB...")
+    # Determine quote currency for message
+    quote_currency = "USD" if "USD" in ticker else "RUB"
+
+    status_msg = await message.answer(f"⏳ Получаю данные и строю график {currency}/{quote_currency}...")
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_photo")
 
     # Run synchronous chart generation in a thread or executor if needed,
@@ -175,7 +164,7 @@ async def cmd_chart(message: Message, command: CommandObject):
         if buf:
             await status_msg.delete()
             photo = BufferedInputFile(buf.read(), filename=f"chart_{currency}.png")
-            await message.reply_photo(photo, caption=f"График {currency}/RUB за месяц")
+            await message.reply_photo(photo, caption=f"График {currency}/{quote_currency} за месяц")
         else:
             await status_msg.edit_text("Не удалось получить данные для графика. Возможно, тикер не найден.")
     except asyncio.TimeoutError:
@@ -183,6 +172,36 @@ async def cmd_chart(message: Message, command: CommandObject):
     except Exception as e:
         logger.error(f"Error generating chart: {e}", exc_info=True)
         await status_msg.edit_text("❌ Произошла ошибка при генерации графика.")
+
+@main_router.message(Command("chart"))
+async def cmd_chart(message: Message, command: CommandObject):
+    """
+    Handler for /chart <currency>
+    e.g. /chart USD -> chart for USD/RUB
+    """
+    args = command.args
+    if not args:
+        await message.answer("📊 Выберите валюту для графика:", reply_markup=chart_quick_pick_keyboard())
+        return
+
+    # Input validation: only allow alphanumeric characters to prevent injection
+    currency_raw = args.strip()
+    if not currency_raw.isalnum() or len(currency_raw) > 10:
+        await message.answer("⚠️ Неверный формат валюты. Используйте код валюты (например, USD, EUR)")
+        return
+
+    currency = currency_raw.upper()
+    await _send_chart_impl(message, currency)
+
+@main_router.callback_query(F.data.startswith("chart_pick_"))
+async def on_chart_pick(callback: CallbackQuery):
+    currency = callback.data.split("_")[2]
+    await callback.answer() # Stop loading animation immediately
+
+    # UX: Interaction Pattern - remove buttons to prevent double clicks
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    await _send_chart_impl(callback.message, currency)
 
 @main_router.callback_query(F.data.startswith("toggle_"))
 async def on_toggle_currency(callback: CallbackQuery, session: AsyncSession):
