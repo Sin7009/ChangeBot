@@ -156,18 +156,41 @@ def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
         image = sharpness.enhance(2.0)
 
         # Configure Tesseract:
-        # -l rus+eng: Support Russian and English
-        # --oem 3: Default OCR Engine Mode
-        # --psm 6: Assume a single uniform block of text
-        config = r'-l rus+eng --oem 3 --psm 6'
+        # Для скриншотов (где есть смесь текста/цифр/лейблов) psm=11 часто помогает,
+        # но psm=6 иногда лучше на «однородных блоках». Попробуем оба и выберем лучший.
+        configs = [
+            r'-l rus+eng --oem 3 --psm 6',
+            r'-l rus+eng --oem 3 --psm 11',
+        ]
 
-        text = pytesseract.image_to_string(image, config=config)
+        def _score_text(t: str) -> float:
+            if not t:
+                return 0.0
+            digits = sum(ch.isdigit() for ch in t)
+            letters = sum(ch.isalpha() for ch in t)
+            length = len(t)
+            # Heuristic: больше цифр + больше букв = вероятнее «полезный» текст.
+            # Минорный бонус за длину, чтобы не выбирать крошечный мусор.
+            return digits * 3 + letters * 1 + min(length, 800) * 0.01
 
-        if not text:
+        best_text = None
+        best_score = 0.0
+
+        for config in configs:
+            text = pytesseract.image_to_string(image, config=config)
+            if not text:
+                continue
+            cleaned = text.strip()
+            score = _score_text(cleaned)
+            if score > best_score:
+                best_score = score
+                best_text = cleaned
+
+        if not best_text:
             logger.info("OCR Result: No text extracted.")
             return None
 
-        cleaned_text = text.strip()
+        cleaned_text = best_text
 
         if not cleaned_text:
             logger.info("OCR Result: Text was empty after stripping.")

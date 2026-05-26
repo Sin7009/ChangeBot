@@ -9,6 +9,7 @@ from aiogram.filters import Command, CommandStart, CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.services.recognizer import recognize, Price
+from src.services.offer_advisor import analyze_subscription_offer
 from src.services.rates import rates_service
 from src.services.charts import generate_chart
 from src.services.ocr import image_to_text
@@ -214,12 +215,15 @@ async def on_close_settings(callback: CallbackQuery):
 async def handle_text(message: Message, session: AsyncSession):
     prices = recognize(message.text)
 
-    if not prices:
+    if prices:
+        response = await convert_prices(prices, session, message.chat.id)
+        if response:
+            await message.reply(response)
         return
 
-    response = await convert_prices(prices, session, message.chat.id)
-    if response:
-        await message.reply(response)
+    offer_advice = analyze_subscription_offer(message.text)
+    if offer_advice:
+        await message.reply(offer_advice)
 
 @main_router.message(F.photo)
 async def handle_photo(message: Message, session: AsyncSession):

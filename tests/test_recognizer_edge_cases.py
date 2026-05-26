@@ -129,3 +129,61 @@ def test_reverse_order_sequence():
     assert res[0].currency == "RUB"
     assert res[1].amount == 200.0
     assert res[1].currency == "USD"
+
+
+def test_transfer_question_infers_rub_amount_from_context():
+    """If user asks transfer-to-dollar question without source currency, infer RUB source."""
+    text = "если я переведу 25000 на свою карту в Армении (она в баксах) сколько я получу денег?"
+    res = recognize(text)
+
+    assert len(res) == 1
+    assert res[0].amount == 25000.0
+    assert res[0].currency == "RUB"
+
+
+def test_transfer_question_without_target_currency_hint_not_inferred():
+    """Do not infer bare numbers for transfer questions without explicit target-currency hint."""
+    text = "если я переведу 25000 на свою карту, сколько я получу денег?"
+    res = recognize(text)
+
+    assert len(res) == 0
+
+
+def test_does_not_parse_count_phrase_as_rubles():
+    """Do not parse phrases like '2 раза' as '2 RUB'."""
+    text = "Если что, они его 2 раза на РЕН-ТВ приглашали"
+    res = recognize(text)
+
+    assert len(res) == 0
+
+
+def test_does_not_parse_symbol_when_stuck_to_word_tail():
+    """Do not parse malformed token like '100$abc' as currency."""
+    text = "Тестовый хвост 100$abc"
+    res = recognize(text)
+
+    assert len(res) == 0
+
+
+def test_does_not_parse_symbol_when_stuck_to_word_head():
+    """Do not parse malformed token like 'abc$100' as currency."""
+    text = "Префикс abc$100 для проверки"
+    res = recognize(text)
+
+    assert len(res) == 0
+
+
+def test_does_not_parse_weight_ton_as_ton_crypto():
+    """Do not parse physical weight 'тон' as TON cryptocurrency."""
+    text = "Купили 2 тон цемента"
+    res = recognize(text)
+
+    assert len(res) == 0
+
+
+def test_transfer_inference_requires_finance_context_words():
+    """Do not infer RUB for generic 'переведу ... в баксах' text outside money-transfer context."""
+    text = "переведу 25000 комментариев в баксах в таблице"
+    res = recognize(text)
+
+    assert len(res) == 0

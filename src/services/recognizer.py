@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Dict, Set
 
+
 @dataclass
 class Price:
     amount: float
@@ -45,6 +46,19 @@ def trie_regex_from_words(words: List[str]) -> str:
     return "(?:" + _regex_from_trie(trie) + ")"
 
 class CurrencyRecognizer:
+    TRANSFER_VERBS = {
+        "переведу", "перевести", "перевод", "скину", "отправлю", "закину", "перекину"
+    }
+    TRANSFER_TARGET_HINTS = {
+        "в баксах", "в долларах", "usd", "доллар", "долларах", "доллары", "баксы", "баксов"
+    }
+    TRANSFER_FINANCE_CONTEXT_HINTS = {
+        "карта", "карте", "счет", "счёт", "банк", "денег", "деньги", "получу", "получить"
+    }
+    TON_CRYPTO_HINTS = {
+        "toncoin", "крипт", "кошелек", "кошелёк", "wallet", "адрес", "транзак", "депозит", "вывод", "бирж", "usdt", "btc", "eth"
+    }
+
     # Valid currency codes - whitelist to prevent false positives
     VALID_CURRENCIES = {
         # Fiat currencies
@@ -270,6 +284,18 @@ class CurrencyRecognizer:
                 amount_str, multiplier_str, currency_raw = match.group(1), match.group(2), match.group(3)
                 amount = cls._normalize_amount(amount_str)
 
+                # Guard against malformed symbol cases like "100$abc"
+                if currency_raw in cls.SYMBOLS and match.end() < len(text_cleaned) and text_cleaned[match.end()].isalpha():
+                    continue
+
+                # Guard against partial word matches, e.g. "2 раза" -> "2 р" (RUB)
+                if currency_raw.isalpha() and match.end() < len(text_cleaned) and text_cleaned[match.end()].isalpha():
+                    continue
+
+                # Disambiguate TON crypto vs Russian weight "тон"
+                if currency_raw in {"тон", "ton"} and not any(h in text_cleaned for h in cls.TON_CRYPTO_HINTS):
+                    continue
+
                 # Strict mode check
                 if strict_mode:
                     if currency_raw not in cls.SYMBOLS:
@@ -298,6 +324,18 @@ class CurrencyRecognizer:
                 currency_raw, amount_str, multiplier_str = match.group(4), match.group(5), match.group(6)
                 amount = cls._normalize_amount(amount_str)
 
+                # Guard against malformed symbol cases like "abc$100"
+                if currency_raw in cls.SYMBOLS and match.start(4) > 0 and text_cleaned[match.start(4) - 1].isalpha():
+                    continue
+
+                # Guard against partial word matches, e.g. "раз 2" -> "р 2" (RUB)
+                if currency_raw.isalpha() and match.start(4) > 0 and text_cleaned[match.start(4) - 1].isalpha():
+                    continue
+
+                # Disambiguate TON crypto vs Russian weight "тон"
+                if currency_raw in {"тон", "ton"} and not any(h in text_cleaned for h in cls.TON_CRYPTO_HINTS):
+                    continue
+
                 # Strict mode check
                 if strict_mode:
                     if currency_raw not in cls.SYMBOLS:
@@ -320,7 +358,34 @@ class CurrencyRecognizer:
                     val, curr = cls.SLANG_AMOUNT_CURRENCY[word]
                     results.append(Price(amount=val, currency=curr))
 
+        if not results and not strict_mode:
+            inferred = cls._infer_transfer_amount_without_currency(text_cleaned)
+            if inferred:
+                results.append(inferred)
+
         return results
+
+    @classmethod
+    def _infer_transfer_amount_without_currency(cls, text_cleaned: str) -> Price | None:
+        """Infer source currency as RUB for transfer-like questions with explicit USD target hint."""
+        if not any(v in text_cleaned for v in cls.TRANSFER_VERBS):
+            return None
+
+        if not any(h in text_cleaned for h in cls.TRANSFER_TARGET_HINTS):
+            return None
+
+        if not any(h in text_cleaned for h in cls.TRANSFER_FINANCE_CONTEXT_HINTS):
+            return None
+
+        m = re.search(r"\b(\d{1,3}(?:\s\d{3})+|\d+)\b", text_cleaned)
+        if not m:
+            return None
+
+        amount = cls._normalize_amount(m.group(1))
+        if amount <= 0:
+            return None
+
+        return Price(amount=amount, currency="RUB")
 
 def recognize(text: str, strict_mode: bool = False) -> List[Price]:
     return CurrencyRecognizer.parse(text, strict_mode)

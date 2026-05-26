@@ -84,3 +84,15 @@ async def test_convert_handles_no_rates():
     with patch.object(service, '_fetch_rates', return_value=None):
         result = await service.convert(100, "USD", "EUR")
         assert result == 0.0
+
+
+@pytest.mark.asyncio
+async def test_convert_with_realistic_transfer_question_amount():
+    """Regression: 25k RUB -> USD conversion should produce non-zero rounded value."""
+    service = RatesService()
+    service.rates = {"USD": 1.0, "RUB": 71.19, "EUR": 0.8626}
+    service.last_updated = 9999999999
+
+    result = await service.convert(25000, "RUB", "USD")
+    assert result > 0
+    assert abs(result - 351.173) < 0.01
