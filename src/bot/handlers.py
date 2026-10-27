@@ -338,7 +338,12 @@ async def handle_photo(message: Message, session: AsyncSession):
                 await message.reply(response)
         else:
             if is_private and status_msg:
-                await status_msg.edit_text("Валюты найдены, но не выбраны целевые валюты в настройках.")
+                target_currencies = await get_target_currencies(session, message.chat.id)
+                source_currencies = {price.currency for price in prices}
+                if any(code not in source_currencies for code in target_currencies):
+                    await status_msg.edit_text("Валюты найдены, но курсы сейчас недоступны. Попробуйте позже.")
+                else:
+                    await status_msg.edit_text("Валюты найдены, но не выбраны целевые валюты в настройках.")
 
     except Exception as e:
         logger.error(f"Error handling photo: {e}", exc_info=True)

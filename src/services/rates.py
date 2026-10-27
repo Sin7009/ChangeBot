@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import time
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
+import aiohttp
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,12 @@ class RatesService:
 
     # Cache configuration
     CACHE_TTL = 3600  # 1 hour
-    FETCH_TIMEOUT = 30  # 30 seconds timeout for API calls
+    # Short enough not to stall a reply when Yahoo is unreachable: CBR rates cover fiat then
+    FETCH_TIMEOUT = 10  # seconds timeout for yfinance calls
+
+    # Official Central Bank of Russia rates (JSON mirror of cbr.ru/scripts/XML_daily.asp)
+    CBR_URL = "https://www.cbr-xml-daily.ru/daily_json.js"
+    CBR_TIMEOUT = 10  # seconds
 
     def __new__(cls):
         if cls._instance is None:
@@ -27,6 +33,56 @@ class RatesService:
         return cls._instance
 
     async def _fetch_rates(self) -> Optional[Dict[str, float]]:
+        """
+        Fetches rates relative to USD from Yahoo Finance (market rates, crypto) and CBR.
+        Yahoo is often unreachable from Russian networks, so CBR rates fill in the fiat
+        currencies it fails to return.
+
+        Returns:
+            Dict of currency rates or None if neither source returned any
+        """
+        cbr_rates, yahoo_rates = await asyncio.gather(self._fetch_cbr_rates(), self._fetch_yahoo_rates())
+
+        new_rates = {**(cbr_rates or {}), **(yahoo_rates or {})}
+        if len(new_rates) <= 1:  # Nothing but the USD base
+            return None
+
+        return new_rates
+
+    async def _fetch_cbr_rates(self) -> Optional[Dict[str, float]]:
+        """Fetches official CBR rates. Returns None on failure."""
+        try:
+            timeout = aiohttp.ClientTimeout(total=self.CBR_TIMEOUT)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(self.CBR_URL) as response:
+                    response.raise_for_status()
+                    # Served as application/javascript
+                    data = await response.json(content_type=None)
+
+            return self._parse_cbr_rates(data)
+
+        except Exception as e:
+            logger.error(f"Error fetching rates from CBR: {e}")
+            return None
+
+    @staticmethod
+    def _parse_cbr_rates(data: Dict[str, Any]) -> Dict[str, float]:
+        """
+        Converts CBR quotes (RUB per `Nominal` units, e.g. 17.85 RUB per 100 KZT)
+        into rates relative to USD.
+        """
+        rub_per_unit = {
+            code: quote["Value"] / quote["Nominal"]
+            for code, quote in data["Valute"].items()
+        }
+        rub_per_usd = rub_per_unit["USD"]
+
+        rates = {code: rub_per_usd / rub for code, rub in rub_per_unit.items()}
+        rates["USD"] = 1.0
+        rates["RUB"] = rub_per_usd
+        return rates
+
+    async def _fetch_yahoo_rates(self) -> Optional[Dict[str, float]]:
         """
         Fetches rates using yfinance with timeout and error handling.
         We want all rates relative to USD (USD -> XXX).

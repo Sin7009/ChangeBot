@@ -99,6 +99,9 @@ class CurrencyRecognizer:
         "usdt": "USDT", "tether": "USDT"
     }
 
+    # Longer digit lines on price tags are barcodes or article numbers, not prices
+    MAX_PRICE_TAG_DIGITS = 7
+
     CANONICAL_SYMBOLS: Dict[str, str] = {
         "RUB": "₽",
         "USD": "$",
@@ -303,6 +306,24 @@ class CurrencyRecognizer:
 
         return f"{start} {multiplier} {currency} ; {end} {multiplier} {currency}"
 
+    @staticmethod
+    def _merge_stacked_amounts(numbers: List[str]) -> List[str]:
+        """["299", "95", "500"] -> ["299.95", "500"]: a 2-digit line after an amount is its kopecks."""
+        amounts = []
+        i = 0
+        while i < len(numbers):
+            if i + 1 < len(numbers) and len(numbers[i + 1]) == 2:
+                amounts.append(f"{numbers[i]}.{numbers[i + 1]}")
+                i += 2
+                continue
+
+            # A lone short number is not a price: "2", "$" may be unrelated lines
+            if len(numbers[i]) >= 3:
+                amounts.append(numbers[i])
+            i += 1
+
+        return amounts
+
     @classmethod
     def _get_canonical_symbol(cls, token: str) -> str | None:
         """Gets the canonical symbol (e.g. '₽') for a recognized currency token."""
@@ -332,26 +353,29 @@ class CurrencyRecognizer:
         # Split text into lines, strip and clean them
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         
-        # Merge lines for stacked vertical prices (e.g. rubles, kopecks, currency on separate lines)
+        # Merge stacked vertical prices from price tags: OCR returns rubles, kopecks and
+        # currency as separate lines, often for both the old and the new price
+        # (e.g. "299", "95", "500", "руб.", "руб." -> "299.95 ₽", "500 ₽")
         i = 0
         merged_lines = []
         while i < len(lines):
-            # i+2 check: e.g. "299", "95", "руб." -> merged as "299.95 ₽"
-            if i + 2 < len(lines) and lines[i].isdigit() and len(lines[i+1]) in (1, 2) and lines[i+1].isdigit():
-                symbol = cls._get_canonical_symbol(lines[i+2])
-                if symbol:
-                    merged_lines.append(f"{lines[i]}.{lines[i+1]} {symbol}")
-                    i += 3
+            numbers_end = i
+            while (numbers_end < len(lines) and lines[numbers_end].isdigit()
+                   and len(lines[numbers_end]) <= cls.MAX_PRICE_TAG_DIGITS):
+                numbers_end += 1
+
+            currencies_end = numbers_end
+            while currencies_end < len(lines) and cls._get_canonical_symbol(lines[currencies_end]):
+                currencies_end += 1
+
+            if numbers_end > i and currencies_end > numbers_end:
+                amounts = cls._merge_stacked_amounts(lines[i:numbers_end])
+                if amounts:
+                    symbol = cls._get_canonical_symbol(lines[numbers_end])
+                    merged_lines.extend(f"{amount} {symbol}" for amount in amounts)
+                    i = currencies_end
                     continue
-            
-            # i+1 check: e.g. "500", "руб." -> merged as "500 ₽"
-            if i + 1 < len(lines) and lines[i].isdigit() and len(lines[i]) >= 3:
-                symbol = cls._get_canonical_symbol(lines[i+1])
-                if symbol:
-                    merged_lines.append(f"{lines[i]} {symbol}")
-                    i += 2
-                    continue
-            
+
             merged_lines.append(lines[i])
             i += 1
                 

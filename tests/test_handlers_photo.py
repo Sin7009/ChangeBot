@@ -147,3 +147,32 @@ async def test_handle_photo_group_chat_with_reply():
         mock_ocr.assert_called_once()
         mock_recognize.assert_called_once()
 
+
+@pytest.mark.asyncio
+async def test_handle_photo_private_chat_rates_unavailable():
+    # Regression: without rates the bot claimed that no target currencies were selected
+    chat = MagicMock(spec=Chat)
+    chat.type = "private"
+    chat.id = 123
+
+    status_msg = MagicMock()
+    status_msg.edit_text = AsyncMock()
+
+    message = MagicMock(spec=Message)
+    message.chat = chat
+    message.photo = [_PhotoSize()]
+    message.caption = None
+    message.reply_to_message = None
+    message.bot = MagicMock()
+    message.bot.download = AsyncMock()
+    message.bot.send_chat_action = AsyncMock()
+    message.answer = AsyncMock(return_value=status_msg)
+
+    mock_ocr = AsyncMock(return_value="299\n95\nруб.")
+    with patch("src.bot.handlers.image_to_text", new=mock_ocr), \
+         patch("src.bot.handlers.get_target_currencies", new=AsyncMock(return_value=("RUB", "USD"))), \
+         patch("src.bot.handlers.rates_service.get_rates", new=AsyncMock(return_value={})):
+
+        await handle_photo(message, MagicMock())
+
+    status_msg.edit_text.assert_awaited_once_with("Валюты найдены, но курсы сейчас недоступны. Попробуйте позже.")
