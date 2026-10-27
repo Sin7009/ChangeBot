@@ -23,6 +23,10 @@ main_router = Router()
 def get_flag(currency: str) -> str:
     return CURRENCY_FLAGS.get(currency, "💰")
 
+def format_amount(amount: float) -> str:
+    # Fixed-point, not :g, which turns large amounts into "3.5e+08"
+    return f"{amount:.2f}".rstrip("0").rstrip(".")
+
 async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: int) -> Optional[str]:
     """
     Converts a list of recognized prices to the target currencies defined in chat settings.
@@ -45,11 +49,6 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
     response_lines = []
 
     for price in prices:
-        flag = get_flag(price.currency)
-
-        # Header: 🇺🇸 100 USD
-        response_lines.append(f"{flag} {price.amount:g} {price.currency}")
-
         conversions = []
         for target_code in target_currencies:
             if target_code == price.currency:
@@ -60,12 +59,16 @@ async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: in
             converted_amount = rates_service.calculate_conversion(
                 price.amount, price.currency, target_code, rates
             )
+            # 0.0 means a rate is unavailable: skip it instead of replying "0 USD"
+            if not converted_amount:
+                continue
 
-            formatted_amount = f"{converted_amount:.2f}".rstrip("0").rstrip(".")
             # Indented line: "  🇷🇺 9000 RUB"
-            conversions.append(f"  {target_flag} {formatted_amount} {target_code}")
+            conversions.append(f"  {target_flag} {format_amount(converted_amount)} {target_code}")
 
         if conversions:
+            # Header: 🇺🇸 100 USD
+            response_lines.append(f"{get_flag(price.currency)} {format_amount(price.amount)} {price.currency}")
             response_lines.extend(conversions)
             response_lines.append("")  # Empty line between different source amounts
 
@@ -211,26 +214,40 @@ async def on_close_settings(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer()
 
-@main_router.message(F.text)
-async def handle_text(message: Message, session: AsyncSession):
-    prices = recognize(message.text)
+async def reply_to_text(message: Message, text: str, session: AsyncSession) -> bool:
+    """
+    Replies with conversions of prices found in the text, or with subscription offer advice.
+    Returns True if the text was handled and needs no further processing.
+    """
+    prices = recognize(text)
 
     if prices:
         response = await convert_prices(prices, session, message.chat.id)
         if response:
             await message.reply(response)
-        return
+        return True
 
-    offer_advice = analyze_subscription_offer(message.text)
+    offer_advice = analyze_subscription_offer(text)
     if offer_advice:
         await message.reply(offer_advice)
+        return True
+
+    return False
+
+@main_router.message(F.text)
+async def handle_text(message: Message, session: AsyncSession):
+    await reply_to_text(message, message.text, session)
 
 @main_router.message(F.photo)
 async def handle_photo(message: Message, session: AsyncSession):
     """
     Handles photo messages. Downloads the photo, performs OCR to extract text,
     and then runs currency recognition in strict mode (requiring symbols).
+    A caption with prices (e.g. a forwarded channel post) is handled as text instead.
     """
+    if message.caption and await reply_to_text(message, message.caption, session):
+        return
+
     is_private = message.chat.type == "private"
     status_msg = None
 
@@ -311,3 +328,8 @@ async def handle_photo(message: Message, session: AsyncSession):
         if is_private and status_msg:
             await status_msg.edit_text("Произошла ошибка при обработке изображения. Пожалуйста, попробуйте позже.")
         # In groups, stay silent on error
+
+@main_router.message(F.caption)
+async def handle_caption(message: Message, session: AsyncSession):
+    """Handles captions of media without OCR support (video, animation, document)."""
+    await reply_to_text(message, message.caption, session)

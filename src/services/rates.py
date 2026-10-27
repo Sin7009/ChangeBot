@@ -19,9 +19,9 @@ class RatesService:
             cls._instance.rates = {}
             cls._instance.base_currency = "USD"
             cls._instance.last_updated = 0.0
+            cls._instance._last_attempt = 0.0
             cls._instance._lock = asyncio.Lock()
             cls._instance._consecutive_failures = 0
-            cls._instance.MAX_CONSECUTIVE_FAILURES = 3
             # No API key needed for yfinance
 
         return cls._instance
@@ -71,7 +71,6 @@ class RatesService:
                 )
             except asyncio.TimeoutError:
                 logger.error(f"Timeout ({self.FETCH_TIMEOUT}s) fetching rates from yfinance")
-                self._consecutive_failures += 1
                 return None
 
             new_rates = {"USD": 1.0}
@@ -105,10 +104,12 @@ class RatesService:
                     logger.warning(f"Failed to extract rate for {code} ({ticker}): {e}")
                     continue
 
-            # Reset failure counter on success
-            if len(new_rates) > 1:  # More than just USD
-                self._consecutive_failures = 0
-            
+            # yfinance logs download errors (e.g. SSLError) instead of raising,
+            # so an outage shows up as a result with nothing but the USD base.
+            if len(new_rates) == 1:
+                logger.error("No rates fetched from yfinance")
+                return None
+
             return new_rates
 
         except asyncio.TimeoutError:
@@ -116,8 +117,17 @@ class RatesService:
             return None
         except Exception as e:
             logger.error(f"Error fetching rates from yfinance: {e}", exc_info=True)
-            self._consecutive_failures += 1
             return None
+
+    def _needs_update(self, now: float) -> bool:
+        # After a failed update wait before retrying: otherwise every message would
+        # pay the full fetch time while the API is down. Stale rates are served meanwhile.
+        if self._consecutive_failures:
+            backoff_time = min(3600, 60 * (2 ** (self._consecutive_failures - 1)))
+            if now - self._last_attempt < backoff_time:
+                return False
+
+        return not self.rates or (now - self.last_updated > self.CACHE_TTL)
 
     async def get_rates(self) -> Dict[str, float]:
         """
@@ -129,27 +139,22 @@ class RatesService:
         Returns:
             Dict of currency rates (may be stale if API is down)
         """
-        now = time.time()
-        
-        # Implement exponential backoff on consecutive failures
-        if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
-            backoff_time = min(3600, 60 * (2 ** (self._consecutive_failures - self.MAX_CONSECUTIVE_FAILURES)))
-            if now - self.last_updated < backoff_time:
-                logger.warning(f"Skipping rate update due to consecutive failures (backoff: {backoff_time}s)")
-                return self.rates
-        
-        if not self.rates or (now - self.last_updated > self.CACHE_TTL):
+        if self._needs_update(time.time()):
             # Use lock to prevent multiple concurrent API calls (cache stampede)
             async with self._lock:
                 # Double-check cache condition after acquiring lock
                 now = time.time()
-                if not self.rates or (now - self.last_updated > self.CACHE_TTL):
+                if self._needs_update(now):
                     logger.info("Updating rates from yfinance...")
                     new_rates = await self._fetch_rates()
+                    self._last_attempt = now
                     if new_rates:
-                        self.rates = new_rates
+                        # Merge so currencies missing from a partial response keep their last known rate
+                        self.rates = {**self.rates, **new_rates}
                         self.last_updated = now
+                        self._consecutive_failures = 0
                     else:
+                        self._consecutive_failures += 1
                         logger.warning("Using stale rates due to API failure.")
 
         return self.rates

@@ -1,5 +1,6 @@
+import pandas as pd
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from src.services.rates import RatesService
 
 
@@ -96,3 +97,42 @@ async def test_convert_with_realistic_transfer_question_amount():
     result = await service.convert(25000, "RUB", "USD")
     assert result > 0
     assert abs(result - 351.173) < 0.01
+
+
+@pytest.fixture
+def fresh_service():
+    service = RatesService()
+    service.rates = {"USD": 1.0, "RUB": 80.0, "EUR": 0.86}
+    service.last_updated = 0  # Expired cache
+    service._last_attempt = 0.0
+    service._consecutive_failures = 0
+    yield service
+    service._consecutive_failures = 0
+
+
+@pytest.mark.asyncio
+async def test_fetch_rates_returns_none_when_all_downloads_fail(fresh_service):
+    """Regression: yfinance logs SSLError instead of raising and returns no data."""
+    with patch("src.services.rates.yf.download", return_value=pd.DataFrame()):
+        assert await fresh_service._fetch_rates() is None
+
+
+@pytest.mark.asyncio
+async def test_failed_update_keeps_cached_rates_and_backs_off(fresh_service):
+    """Regression: a failed update used to replace the cache with {"USD": 1.0}, so 228 RUB -> 0 USD."""
+    with patch("src.services.rates.yf.download", return_value=pd.DataFrame()) as mock_download:
+        rates = await fresh_service.get_rates()
+        assert rates["RUB"] == 80.0
+        assert await fresh_service.convert(228, "RUB", "USD") == pytest.approx(2.85)
+
+        # No retry on every message while in backoff
+        assert mock_download.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_update_keeps_missing_rates(fresh_service):
+    with patch.object(fresh_service, "_fetch_rates", new=AsyncMock(return_value={"USD": 1.0, "EUR": 0.9})):
+        rates = await fresh_service.get_rates()
+
+    assert rates == {"USD": 1.0, "RUB": 80.0, "EUR": 0.9}
+    assert fresh_service._consecutive_failures == 0
