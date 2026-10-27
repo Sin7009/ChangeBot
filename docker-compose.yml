@@ -10,6 +10,7 @@ services:
     # База на хосте, иначе она пропадает при каждом пересоздании контейнера
     environment:
       - DB_PATH=/app/data/bot_database.sqlite3
+      - RATES_CACHE_PATH=/app/data/rates_cache.json
     volumes:
       - ./data:/app/data
     # Ограничиваем ресурсы, чтобы бот не съел всю память сервера (для твоей Free Tier VM)

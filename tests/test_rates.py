@@ -1,3 +1,6 @@
+import asyncio
+import json
+
 import pandas as pd
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -106,8 +109,12 @@ def fresh_service():
     service.last_updated = 0  # Expired cache
     service._last_attempt = 0.0
     service._consecutive_failures = 0
+    service._background_updates = False
+    service.cache_path = None
     yield service
     service._consecutive_failures = 0
+    service._background_updates = False
+    service.cache_path = None
 
 
 @pytest.mark.asyncio
@@ -188,3 +195,67 @@ async def test_fetch_rates_returns_none_when_both_sources_fail(fresh_service):
     with patch.object(fresh_service, "_fetch_cbr_rates", new=AsyncMock(return_value=None)), \
          patch.object(fresh_service, "_fetch_yahoo_rates", new=AsyncMock(return_value=None)):
         assert await fresh_service._fetch_rates() is None
+
+
+@pytest.mark.asyncio
+async def test_update_saves_cache_and_load_restores_it(fresh_service, tmp_path):
+    path = tmp_path / "rates_cache.json"
+    fresh_service.load_cache(str(path))  # No file yet: nothing changes
+
+    assert fresh_service.rates["RUB"] == 80.0
+
+    with patch.object(fresh_service, "_fetch_rates", new=AsyncMock(return_value={"USD": 1.0, "RUB": 81.0})):
+        await fresh_service.get_rates()
+
+    saved = json.loads(path.read_text())
+    assert saved["rates"]["RUB"] == 81.0
+    assert saved["updated_at"] == fresh_service.last_updated
+
+    # A restart starts from the saved rates
+    fresh_service.rates = {}
+    fresh_service.load_cache(str(path))
+    assert fresh_service.rates["RUB"] == 81.0
+
+
+def test_load_cache_ignores_broken_file(fresh_service, tmp_path):
+    path = tmp_path / "rates_cache.json"
+    path.write_text("{not json")
+
+    fresh_service.load_cache(str(path))
+
+    assert fresh_service.rates["RUB"] == 80.0
+
+
+@pytest.mark.asyncio
+async def test_get_rates_does_not_fetch_while_background_updates_run(fresh_service):
+    """Stale rates are served at once: the background task refreshes them."""
+    fresh_service._background_updates = True
+    with patch.object(fresh_service, "_fetch_rates", new=AsyncMock()) as mock_fetch:
+        rates = await fresh_service.get_rates()
+
+    assert rates["RUB"] == 80.0
+    mock_fetch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_rates_fetches_without_any_rates_even_with_background_updates(fresh_service):
+    fresh_service._background_updates = True
+    fresh_service.rates = {}
+    with patch.object(fresh_service, "_fetch_rates", new=AsyncMock(return_value={"USD": 1.0, "RUB": 81.0})):
+        rates = await fresh_service.get_rates()
+
+    assert rates["RUB"] == 81.0
+
+
+@pytest.mark.asyncio
+async def test_run_updates_survives_a_failed_update(fresh_service):
+    update = AsyncMock(side_effect=[RuntimeError("boom"), None])
+    sleep = AsyncMock(side_effect=[None, asyncio.CancelledError()])
+    with patch.object(fresh_service, "_update", new=update), \
+         patch("src.services.rates.asyncio.sleep", new=sleep):
+        with pytest.raises(asyncio.CancelledError):
+            await fresh_service.run_updates()
+
+    assert update.await_count == 2
+    sleep.assert_awaited_with(fresh_service.UPDATE_INTERVAL)
+    assert fresh_service._background_updates is False

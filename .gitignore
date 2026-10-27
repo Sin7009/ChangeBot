@@ -155,3 +155,4 @@ paddlex_cache/
 
 # Bot database (docker volume)
 data/
+rates_cache.json*
