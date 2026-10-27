@@ -12,7 +12,7 @@
 - [x] Убрать мусор из контекста сборки: `paddlex_cache/` в `.gitignore` и `.dockerignore`. Перенести `walkthrough.md` в `docs/`, а `inspect_paddleocr.py` в `scripts/`.
 
 ## 3. CI
-- [ ] Прогонять pytest на каждый pull request (сейчас workflow только собирает образ при пуше в `master`).
+- [x] Прогонять pytest на каждый pull request (сейчас workflow только собирает образ при пуше в `master`).
 
 ## 4. Курсы
 - [ ] Мелкие суммы в криптовалюте: 228 ₽ в BTC сейчас показывается как `0 BTC`. Нужны значащие цифры для сумм меньше 1.

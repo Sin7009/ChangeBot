@@ -1,0 +1,31 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [ "master" ]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+
+    # src/config.py requires these at import time; tests do not use real values
+    env:
+      BOT_TOKEN: "123456:test-token"
+      OER_API_KEY: "test-key"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        # --locked fails if uv.lock is out of sync with pyproject.toml
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run pytest -q
