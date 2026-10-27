@@ -21,7 +21,10 @@ class RatesService:
 
     # Official Central Bank of Russia rates (JSON mirror of cbr.ru/scripts/XML_daily.asp)
     CBR_URL = "https://www.cbr-xml-daily.ru/daily_json.js"
-    CBR_TIMEOUT = 10  # seconds
+    # Crypto prices: one request for all coins, no API key
+    COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
+    COINGECKO_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "TON": "the-open-network", "USDT": "tether"}
+    HTTP_TIMEOUT = 10  # seconds, for CBR and CoinGecko
 
     def __new__(cls):
         if cls._instance is None:
@@ -40,36 +43,57 @@ class RatesService:
 
     async def _fetch_rates(self) -> Optional[Dict[str, float]]:
         """
-        Fetches rates relative to USD from Yahoo Finance (market rates, crypto) and CBR.
-        Yahoo is often unreachable from Russian networks, so CBR rates fill in the fiat
-        currencies it fails to return.
+        Fetches rates relative to USD from Yahoo Finance (market rates, crypto),
+        CBR (fiat) and CoinGecko (crypto). Yahoo is often unreachable from Russian
+        networks, so the other two fill in the currencies it fails to return.
 
         Returns:
-            Dict of currency rates or None if neither source returned any
+            Dict of currency rates or None if no source returned any
         """
-        cbr_rates, yahoo_rates = await asyncio.gather(self._fetch_cbr_rates(), self._fetch_yahoo_rates())
+        cbr_rates, crypto_rates, yahoo_rates = await asyncio.gather(
+            self._fetch_cbr_rates(), self._fetch_coingecko_rates(), self._fetch_yahoo_rates()
+        )
 
-        new_rates = {**(cbr_rates or {}), **(yahoo_rates or {})}
+        new_rates = {**(cbr_rates or {}), **(crypto_rates or {}), **(yahoo_rates or {})}
         if len(new_rates) <= 1:  # Nothing but the USD base
             return None
 
         return new_rates
 
+    async def _get_json(self, url: str, params: Optional[Dict[str, str]] = None) -> Any:
+        timeout = aiohttp.ClientTimeout(total=self.HTTP_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, params=params) as response:
+                response.raise_for_status()
+                # CBR serves JSON as application/javascript
+                return await response.json(content_type=None)
+
     async def _fetch_cbr_rates(self) -> Optional[Dict[str, float]]:
         """Fetches official CBR rates. Returns None on failure."""
         try:
-            timeout = aiohttp.ClientTimeout(total=self.CBR_TIMEOUT)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(self.CBR_URL) as response:
-                    response.raise_for_status()
-                    # Served as application/javascript
-                    data = await response.json(content_type=None)
-
-            return self._parse_cbr_rates(data)
-
+            return self._parse_cbr_rates(await self._get_json(self.CBR_URL))
         except Exception as e:
             logger.error(f"Error fetching rates from CBR: {e}")
             return None
+
+    async def _fetch_coingecko_rates(self) -> Optional[Dict[str, float]]:
+        """Fetches crypto prices from CoinGecko. Returns None on failure."""
+        params = {"ids": ",".join(self.COINGECKO_IDS.values()), "vs_currencies": "usd"}
+        try:
+            return self._parse_coingecko_rates(await self._get_json(self.COINGECKO_URL, params)) or None
+        except Exception as e:
+            logger.error(f"Error fetching rates from CoinGecko: {e}")
+            return None
+
+    @classmethod
+    def _parse_coingecko_rates(cls, data: Dict[str, Any]) -> Dict[str, float]:
+        """Converts USD prices ({"bitcoin": {"usd": 80000}}) into coins per USD."""
+        rates = {}
+        for code, coin_id in cls.COINGECKO_IDS.items():
+            price = data.get(coin_id, {}).get("usd")
+            if price:
+                rates[code] = 1.0 / price
+        return rates
 
     @staticmethod
     def _parse_cbr_rates(data: Dict[str, Any]) -> Dict[str, float]:
