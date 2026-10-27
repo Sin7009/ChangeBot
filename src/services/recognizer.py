@@ -119,7 +119,7 @@ class CurrencyRecognizer:
         "лямов": 1000000.0,
         
         # Extended multipliers
-        "тысяча": 1000.0, "тысячи": 1000.0, "тысяч": 1000.0,
+        "тыс": 1000.0, "тысяча": 1000.0, "тысячи": 1000.0, "тысяч": 1000.0,
         "миллион": 1000000.0, "миллиона": 1000000.0, "миллионов": 1000000.0, "млн": 1000000.0,
         "миллиард": 1000000000.0, "миллиарда": 1000000000.0, "миллиардов": 1000000000.0, "млрд": 1000000000.0,
         "триллион": 1000000000000.0, "триллиона": 1000000000000.0, "триллионов": 1000000000000.0, "трлн": 1000000000000.0,
@@ -199,6 +199,23 @@ class CurrencyRecognizer:
     # Avoiding re.search(r'\d', text) in the loop improves performance by ~2-3x.
     HAS_DIGIT_PATTERN = re.compile(r'\d')
 
+    # "900 тыс. руб." -> "900 тыс руб.": the abbreviation dot would split multiplier and currency
+    ABBREVIATED_MULTIPLIER_PATTERN = re.compile(r'(\d[ \t]*(?:тыс|млн|млрд|трлн))\.')
+
+    # Ranges where the multiplier/currency is written once for both ends
+    _RANGE_SEP_REGEX = r'(?:[ \t]*[-–—][ \t]*|[ \t]+до[ \t]+)'
+    # "$2,5-3 млн", "$2,5 - $3 млн", "$100-200"
+    RANGE_PREFIX_PATTERN = re.compile(
+        rf'({_CURRENCY_TOKEN_REGEX})[ \t]*({_AMOUNT_REGEX}){_RANGE_SEP_REGEX}'
+        rf'(?:({_CURRENCY_TOKEN_REGEX})[ \t]*)?({_AMOUNT_REGEX})(?:[ \t]*({MULTIPLIER_REGEX}))?'
+    )
+    # "2,5-3 млн долларов", "от 2 до 3 млн рублей". The multiplier is required:
+    # without it "250-99 руб" is a price tag, not a range.
+    RANGE_SUFFIX_PATTERN = re.compile(
+        rf'(?<![\d.,])({_AMOUNT_REGEX}){_RANGE_SEP_REGEX}({_AMOUNT_REGEX})[ \t]*'
+        rf'({MULTIPLIER_REGEX})[ \t]*({_CURRENCY_TOKEN_REGEX})'
+    )
+
     @classmethod
     def _normalize_amount(cls, amount_str: str) -> float:
         """
@@ -241,6 +258,41 @@ class CurrencyRecognizer:
             return float(amount_str.replace(',', '.'))
 
     @classmethod
+    def _expand_prefix_range(cls, match: re.Match) -> str:
+        """Rewrites "$2,5-3 млн" as "$ 2,5 млн ; $ 3 млн"."""
+        currency, start, end_currency, end, multiplier = match.groups()
+        text = match.string
+
+        # Guard against partial word matches, e.g. "мир 2-3" -> "р 2-3" (RUB)
+        if currency.isalpha() and match.start() > 0 and text[match.start() - 1].isalpha():
+            return match.group(0)
+
+        if end_currency and end_currency != currency:
+            return match.group(0)
+
+        # Only an ascending range shares the multiplier: "с 900 до 1,2 млрд" is not 900 млрд
+        if cls._normalize_amount(start) >= cls._normalize_amount(end):
+            return match.group(0)
+
+        suffix = f" {multiplier}" if multiplier else ""
+        return f"{currency} {start}{suffix} ; {currency} {end}{suffix}"
+
+    @classmethod
+    def _expand_suffix_range(cls, match: re.Match) -> str:
+        """Rewrites "2,5-3 млн долларов" as "2,5 млн долларов ; 3 млн долларов"."""
+        start, end, multiplier, currency = match.groups()
+        text = match.string
+
+        # Guard against partial word matches, e.g. "2-3 млн раз" -> "р" (RUB)
+        if currency.isalpha() and match.end() < len(text) and text[match.end()].isalpha():
+            return match.group(0)
+
+        if cls._normalize_amount(start) >= cls._normalize_amount(end):
+            return match.group(0)
+
+        return f"{start} {multiplier} {currency} ; {end} {multiplier} {currency}"
+
+    @classmethod
     def parse(cls, text: str, strict_mode: bool = False) -> List[Price]:
         """
         Parses text to identify currency amounts.
@@ -258,6 +310,14 @@ class CurrencyRecognizer:
         # Stop words removal was removed as it was redundant and caused false positives
         # (e.g. "100 gb usd" -> "100 usd"). The whitelist regex handles non-currency words correctly.
         text_cleaned = text.lower()
+
+        text_cleaned = cls.ABBREVIATED_MULTIPLIER_PATTERN.sub(r'\1', text_cleaned)
+
+        # Expand ranges so both ends get the shared multiplier and currency
+        # ("$2,5-3 млн" -> 2.5M and 3M USD). Ranges are rewritten before any
+        # other hyphen handling, so "10-15 тыс руб" stays a range.
+        text_cleaned = cls.RANGE_PREFIX_PATTERN.sub(cls._expand_prefix_range, text_cleaned)
+        text_cleaned = cls.RANGE_SUFFIX_PATTERN.sub(cls._expand_suffix_range, text_cleaned)
 
         # OPTIMIZATION: "Fast Path" for text without digits.
         # The COMBINED_PATTERN requires at least one digit (for amount) in its first two major parts.
