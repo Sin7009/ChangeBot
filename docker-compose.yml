@@ -13,3 +13,25 @@ services:
         limits:
           cpus: '0.50'
           memory: 512M
+    depends_on:
+      - ocr-service
+
+  ocr-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.ocr
+    container_name: ocr-service
+    restart: always
+    shm_size: '8gb'
+    volumes:
+      - ./paddlex_cache:/root/.paddlex
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+        limits:
+          cpus: '2.0'
+          memory: 4G

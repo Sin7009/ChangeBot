@@ -1,62 +1,16 @@
 import io
 import logging
+import os
 from typing import Optional, Union
-
-from PIL import Image, ImageEnhance, ImageOps, ImageStat
-import pytesseract
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
-# Constants for image optimization
-MAX_IMAGE_WIDTH = 1600
+OCR_SERVICE_URL = os.getenv("OCR_SERVICE_URL", "http://ocr-service:8000/ocr")
 
-def _fast_autocontrast(image: Image.Image, thumb: Image.Image, cutoff: int = 2) -> Image.Image:
+async def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
     """
-    Optimized autocontrast using thumbnail statistics.
-    Avoids calculating histogram of the full image.
-    Complexity: O(1) (relative to image size) vs O(N) for standard autocontrast.
-    """
-    hist = thumb.histogram()
-    n_pixels = thumb.width * thumb.height
-    cutoff_pixels = n_pixels * cutoff // 100
-
-    # Find low
-    low = 0
-    count = 0
-    for i in range(256):
-        count += hist[i]
-        if count > cutoff_pixels:
-            low = i
-            break
-
-    # Find high
-    high = 255
-    count = 0
-    for i in range(255, -1, -1):
-        count += hist[i]
-        if count > cutoff_pixels:
-            high = i
-            break
-
-    if high <= low:
-        return image
-
-    # Generate LUT for linear stretch
-    scale = 255.0 / (high - low)
-    offset = -low * scale
-
-    # LUT can be a byte string or list
-    lut = []
-    for i in range(256):
-        val = int(i * scale + offset + 0.5)
-        lut.append(min(max(val, 0), 255))
-
-    return image.point(lut)
-
-def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
-    """
-    Extracts text from an image byte stream using Tesseract OCR.
-    Includes preprocessing for dark mode and low contrast.
+    Extracts text from an image by sending it to the external PaddleOCR service.
 
     Args:
         image_input: The image data as bytes or io.BytesIO.
@@ -65,145 +19,44 @@ def image_to_text(image_input: Union[bytes, io.BytesIO]) -> Optional[str]:
         The extracted text as a string, or None if extraction fails or no text is found.
     """
     try:
-        # OPTIMIZATION: Support reading directly from BytesIO to avoid
-        # unnecessary memory copy (bytes -> BytesIO -> Image).
-        if isinstance(image_input, bytes):
-            image_file = io.BytesIO(image_input)
+        # Get raw bytes
+        if isinstance(image_input, io.BytesIO):
+            image_bytes = image_input.getvalue()
         else:
-            image_file = image_input
+            image_bytes = image_input
 
-        image = Image.open(image_file)
+        logger.info(f"Sending OCR Request to {OCR_SERVICE_URL} (size: {len(image_bytes)} bytes)")
 
-        # Log original size
-        width, height = image.size
-        logger.info(f"OCR Request: Image size {width}x{height}")
-
-        # OPTIMIZATION: Use JPEG draft mode to downscale during decode.
-        # This significantly reduces memory usage and CPU time for large JPEGs
-        # by avoiding full resolution decoding.
-        if image.format == 'JPEG' and width > MAX_IMAGE_WIDTH:
-            scale_factor = MAX_IMAGE_WIDTH / width
-            new_height = int(height * scale_factor)
-            try:
-                # draft() modifies the image object in place to load a downscaled version.
-                # It returns the image object itself (or None).
-                image.draft('L', (MAX_IMAGE_WIDTH, new_height))
-                logger.info(f"Used JPEG draft mode to load image at approx {MAX_IMAGE_WIDTH}x{new_height}")
-            except Exception as e:
-                logger.warning(f"Failed to apply JPEG draft mode: {e}")
-
-        # 1. Convert to grayscale for better OCR accuracy
-        # Doing this first speeds up subsequent operations (resize, stats) by working on 1 channel instead of 3.
-        # If draft mode was successful, this loads the downscaled data.
-        # OPTIMIZATION: Avoid unnecessary copy if already in grayscale (e.g. from draft mode)
-        if image.mode != 'L':
-            image = image.convert('L')
-
-        # Update width/height to actual loaded size (draft might not be exact)
-        width, height = image.size
-
-        # Optimize: Downscale very large images (if draft wasn't used or wasn't enough)
-        # OCR typically doesn't need 12MP resolution. 1600px width is usually sufficient.
-        # Downscaling before stats/contrast/OCR significantly reduces CPU usage.
-        if width > MAX_IMAGE_WIDTH:
-            scale_factor = MAX_IMAGE_WIDTH / width
-            new_height = int(height * scale_factor)
-            new_size = (MAX_IMAGE_WIDTH, new_height)
-            logger.info(f"Downscaling large image from {width}x{height} to {new_size} for performance")
-            # Use BILINEAR for downscaling as it's faster and sufficient for reduction
-            image = image.resize(new_size, Image.Resampling.BILINEAR)
-            # Update width/height for subsequent logic
-            width, height = new_size
-
-        # 2. Detect Dark Mode and Invert
-        # Calculate mean brightness
-        # OPTIMIZATION: Use a small thumbnail for brightness calculation to avoid scanning all pixels.
-        # This reduces complexity from O(W*H) to O(1) (fixed size 100x100).
-        # Using NEAREST resampling is sufficient for average brightness and fastest.
-        thumb = image.resize((100, 100), Image.Resampling.NEAREST)
-        stat = ImageStat.Stat(thumb)
-        avg_brightness = stat.mean[0]
-
-        if avg_brightness < 128:
-            logger.info(f"Image is dark (avg={avg_brightness:.2f}), inverting...")
-            image = ImageOps.invert(image)
-            # Invert thumb too to keep stats consistent for autocontrast
-            thumb = ImageOps.invert(thumb)
-        else:
-            logger.info(f"Image is light (avg={avg_brightness:.2f}), skipping inversion.")
-
-        # 3. Enhance Contrast
-        # Moved before resize for performance (processing fewer pixels).
-        # OPTIMIZATION: Use fast autocontrast with thumbnail stats to avoid O(N) histogram calculation.
-        image = _fast_autocontrast(image, thumb, cutoff=2)
-
-        # Additional fixed contrast boost can still help separate faint text from background
-        enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(1.5)
-
-        # 4. Resize if too small (upscaling helps Tesseract detect characters)
-        if width < 1000:
-            scale_factor = 2 if width > 500 else 3
-            new_size = (width * scale_factor, height * scale_factor)
-            # Use BICUBIC instead of LANCZOS for faster processing (~1.9x speedup)
-            # while maintaining sufficient quality for OCR
-            image = image.resize(new_size, Image.Resampling.BICUBIC)
-            logger.info(f"Resized image to {new_size}")
-
-        # 5. Sharpen (helps define edges for Tesseract)
-        # Must be done AFTER resize to counteract interpolation blur
-        sharpness = ImageEnhance.Sharpness(image)
-        image = sharpness.enhance(2.0)
-
-        # Configure Tesseract:
-        # Для скриншотов (где есть смесь текста/цифр/лейблов) psm=11 часто помогает,
-        # но psm=6 иногда лучше на «однородных блоках». Попробуем оба и выберем лучший.
-        configs = [
-            r'-l rus+eng --oem 3 --psm 6',
-            r'-l rus+eng --oem 3 --psm 11',
-        ]
-
-        def _score_text(t: str) -> float:
-            if not t:
-                return 0.0
-            digits = sum(ch.isdigit() for ch in t)
-            letters = sum(ch.isalpha() for ch in t)
-            length = len(t)
-            # Heuristic: больше цифр + больше букв = вероятнее «полезный» текст.
-            # Минорный бонус за длину, чтобы не выбирать крошечный мусор.
-            return digits * 3 + letters * 1 + min(length, 800) * 0.01
-
-        best_text = None
-        best_score = 0.0
-
-        for config in configs:
-            text = pytesseract.image_to_string(image, config=config)
-            if not text:
-                continue
-            cleaned = text.strip()
-            score = _score_text(cleaned)
-            if score > best_score:
-                best_score = score
-                best_text = cleaned
-
-        if not best_text:
-            logger.info("OCR Result: No text extracted.")
-            return None
-
-        cleaned_text = best_text
-
-        if not cleaned_text:
-            logger.info("OCR Result: Text was empty after stripping.")
-            return None
-
-        # Log the beginning of the text
-        log_text = cleaned_text.replace('\n', ' ')
-        if len(log_text) > 100:
-            log_text = log_text[:100] + "..."
-        logger.info(f"OCR Result: {log_text}")
-
-        return cleaned_text
+        # Send image to the ocr-service microservice via HTTP POST
+        async with aiohttp.ClientSession() as session:
+            data = aiohttp.FormData()
+            data.add_field(
+                'file',
+                image_bytes,
+                filename='image.jpg',
+                content_type='image/jpeg'
+            )
+            
+            # Use a timeout of 30.0s for the request
+            async with session.post(OCR_SERVICE_URL, data=data, timeout=30.0) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    text = result.get("text")
+                    if text:
+                        cleaned = text.strip()
+                        if cleaned:
+                            # Log the beginning of the extracted text
+                            log_text = cleaned.replace('\n', ' ')
+                            if len(log_text) > 100:
+                                log_text = log_text[:100] + "..."
+                            logger.info(f"OCR Result: {log_text}")
+                            return cleaned
+                    logger.info("OCR Result: No text extracted.")
+                    return None
+                else:
+                    logger.error(f"OCR service returned error status {response.status}")
+                    return None
 
     except Exception as e:
-        logger.error(f"Error during OCR processing: {e}", exc_info=True)
+        logger.error(f"Error during OCR service request: {e}", exc_info=True)
         return None

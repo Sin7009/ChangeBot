@@ -43,7 +43,6 @@ dependencies = [
     "pydantic-settings==2.12.0",
     "pyee==13.0.0",
     "pyparsing==3.2.5",
-    "pytesseract>=0.3.13",
     "python-dateutil==2.9.0.post0",
     "python-dotenv==1.2.1",
     "pytz==2025.2",

@@ -187,3 +187,20 @@ def test_transfer_inference_requires_finance_context_words():
     res = recognize(text)
 
     assert len(res) == 0
+
+
+def test_does_not_parse_separated_by_newlines():
+    """Do not parse digit and currency symbol if they are on separate lines."""
+    text = "2\n$"
+    res = recognize(text)
+    assert len(res) == 0
+
+    text_strict = "2\n$"
+    res_strict = recognize(text_strict, strict_mode=True)
+    assert len(res_strict) == 0
+
+
+def test_does_not_parse_separated_by_newlines_with_words():
+    text = "some text 2\n$ some other text"
+    res = recognize(text, strict_mode=True)
+    assert len(res) == 0
