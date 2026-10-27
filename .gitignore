@@ -152,3 +152,6 @@ dmypy.json
 
 # PaddleOCR model cache (ocr-service volume)
 paddlex_cache/
+
+# Bot database (docker volume)
+data/

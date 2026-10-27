@@ -15,3 +15,5 @@ jsons/
 log/
 config_dist/
 paddlex_cache/
+*.sqlite3*
+data/
