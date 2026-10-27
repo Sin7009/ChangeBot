@@ -15,6 +15,7 @@ from src.services.charts import generate_chart
 from src.services.ocr import image_to_text
 from src.database.dal import get_chat_settings, toggle_currency, get_target_currencies
 from src.bot.keyboards import settings_keyboard, CURRENCY_FLAGS
+from src.bot.formatting import format_amount
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,6 @@ main_router = Router()
 
 def get_flag(currency: str) -> str:
     return CURRENCY_FLAGS.get(currency, "💰")
-
-def format_amount(amount: float) -> str:
-    # Fixed-point, not :g, which turns large amounts into "3.5e+08"
-    return f"{amount:.2f}".rstrip("0").rstrip(".")
 
 async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: int) -> Optional[str]:
     """
