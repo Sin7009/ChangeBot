@@ -136,7 +136,7 @@ class CurrencyRecognizer:
         "лямов": 1000000.0,
         
         # Extended multipliers
-        "тыс": 1000.0, "тысяча": 1000.0, "тысячи": 1000.0, "тысяч": 1000.0,
+        "тыс": 1000.0, "тысяча": 1000.0, "тысячу": 1000.0, "тысячи": 1000.0, "тысяч": 1000.0,
         "миллион": 1000000.0, "миллиона": 1000000.0, "миллионов": 1000000.0, "млн": 1000000.0,
         "миллиард": 1000000000.0, "миллиарда": 1000000000.0, "миллиардов": 1000000000.0, "млрд": 1000000000.0,
         "триллион": 1000000000000.0, "триллиона": 1000000000000.0, "триллионов": 1000000000000.0, "трлн": 1000000000000.0,
@@ -218,6 +218,19 @@ class CurrencyRecognizer:
 
     # "900 тыс. руб." -> "900 тыс руб.": the abbreviation dot would split multiplier and currency
     ABBREVIATED_MULTIPLIER_PATTERN = re.compile(r'(\d[ \t]*(?:тыс|млн|млрд|трлн))\.')
+
+    # "за миллион песо" -> "за 1 миллион песо": a multiplier word without a number means one.
+    # Only singular forms: "миллиона", "тысяч" always follow a number ("два миллиона").
+    BARE_MULTIPLIER_PATTERN = re.compile(
+        rf'(?<![\w.,])(?:(?:один|одна|одну)[ \t]+)?(тысяча|тысячу|миллион|миллиард|триллион)'
+        rf'(?=[ \t]+{_CURRENCY_TOKEN_REGEX}(?![a-zа-яё]))'
+    )
+    # Tens and hundreds that put "один миллион" inside a bigger number: "двадцать один миллион"
+    COMPOUND_NUMBER_WORDS = {
+        "двадцать", "тридцать", "сорок", "пятьдесят", "шестьдесят", "семьдесят", "восемьдесят",
+        "девяносто", "сто", "двести", "триста", "четыреста", "пятьсот", "шестьсот", "семьсот",
+        "восемьсот", "девятьсот"
+    }
 
     # Ranges where the multiplier/currency is written once for both ends
     _RANGE_SEP_REGEX = r'(?:[ \t]*[-–—][ \t]*|[ \t]+до[ \t]+)'
@@ -309,6 +322,17 @@ class CurrencyRecognizer:
 
         return f"{start} {multiplier} {currency} ; {end} {multiplier} {currency}"
 
+    @classmethod
+    def _expand_bare_multiplier(cls, match: re.Match) -> str:
+        """Rewrites "миллион" and "один миллион" as "1 миллион"."""
+        words = match.string[:match.start()].split()
+
+        # "1 миллион" already has its number, "двадцать один миллион" is not one million
+        if words and (words[-1][-1].isdigit() or words[-1] in cls.COMPOUND_NUMBER_WORDS):
+            return match.group(0)
+
+        return f"1 {match.group(1)}"
+
     @staticmethod
     def _merge_stacked_amounts(numbers: List[str]) -> List[str]:
         """["299", "95", "500"] -> ["299.95", "500"]: a 2-digit line after an amount is its kopecks."""
@@ -385,6 +409,7 @@ class CurrencyRecognizer:
         text_cleaned = "\n".join(merged_lines).lower()
 
         text_cleaned = cls.ABBREVIATED_MULTIPLIER_PATTERN.sub(r'\1', text_cleaned)
+        text_cleaned = cls.BARE_MULTIPLIER_PATTERN.sub(cls._expand_bare_multiplier, text_cleaned)
 
         # Expand ranges so both ends get the shared multiplier and currency
         # ("$2,5-3 млн" -> 2.5M and 3M USD). Ranges are rewritten before any
@@ -400,7 +425,8 @@ class CurrencyRecognizer:
         # The COMBINED_PATTERN requires at least one digit (for amount) in its first two major parts.
         # Only the third part (STANDALONE_SLANG_PATTERN) can match without digits.
         # By checking for digits first, we can skip the complex regex scan for most chat messages.
-        has_digits = cls.HAS_DIGIT_PATTERN.search(text) is not None
+        # text_cleaned, not text: "миллион песо" got its digit only after preprocessing.
+        has_digits = cls.HAS_DIGIT_PATTERN.search(text_cleaned) is not None
 
         if not has_digits:
             # Only check standalone slang (e.g. "косарь")
