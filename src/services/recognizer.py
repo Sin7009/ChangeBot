@@ -62,7 +62,7 @@ class CurrencyRecognizer:
     # Valid currency codes - whitelist to prevent false positives
     VALID_CURRENCIES = {
         # Fiat currencies
-        "USD", "EUR", "RUB", "GBP", "CNY", "KZT", "TRY", "JPY",
+        "USD", "EUR", "RUB", "GBP", "CNY", "KZT", "TRY", "JPY", "MXN",
         # Crypto
         "BTC", "ETH", "TON", "USDT"
     }
@@ -91,7 +91,10 @@ class CurrencyRecognizer:
         
         # CNY
         "юань": "CNY", "юаней": "CNY", "юаня": "CNY", "cny": "CNY", "¥": "CNY",
-        
+
+        # MXN: the most traded peso, so a bare "песо" means the Mexican one
+        "песо": "MXN", "peso": "MXN", "pesos": "MXN",
+
         # Crypto
         "биток": "BTC", "битка": "BTC", "битков": "BTC", "btc": "BTC", "bitcoin": "BTC", "₿": "BTC",
         "эфир": "ETH", "эфира": "ETH", "эфиров": "ETH", "eth": "ETH", "ethereum": "ETH",

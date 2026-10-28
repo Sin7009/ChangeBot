@@ -1,3 +1,6 @@
+import asyncio
+import json
+
 import pandas as pd
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -106,8 +109,12 @@ def fresh_service():
     service.last_updated = 0  # Expired cache
     service._last_attempt = 0.0
     service._consecutive_failures = 0
+    service._background_updates = False
+    service.cache_path = None
     yield service
     service._consecutive_failures = 0
+    service._background_updates = False
+    service.cache_path = None
 
 
 @pytest.mark.asyncio
@@ -121,7 +128,8 @@ async def test_fetch_yahoo_rates_returns_none_when_all_downloads_fail(fresh_serv
 async def test_failed_update_keeps_cached_rates_and_backs_off(fresh_service):
     """Regression: a failed update used to replace the cache with {"USD": 1.0}, so 228 RUB -> 0 USD."""
     with patch("src.services.rates.yf.download", return_value=pd.DataFrame()) as mock_download, \
-         patch.object(fresh_service, "_fetch_cbr_rates", new=AsyncMock(return_value=None)):
+         patch.object(fresh_service, "_fetch_cbr_rates", new=AsyncMock(return_value=None)), \
+         patch.object(fresh_service, "_fetch_coingecko_rates", new=AsyncMock(return_value=None)):
         rates = await fresh_service.get_rates()
         assert rates["RUB"] == 80.0
         assert await fresh_service.convert(228, "RUB", "USD") == pytest.approx(2.85)
@@ -164,6 +172,7 @@ async def test_fetch_rates_falls_back_to_cbr_when_yahoo_fails(fresh_service):
     """Regression: Yahoo is unreachable from the server, so after a restart there were no rates at all."""
     cbr = RatesService._parse_cbr_rates(CBR_RESPONSE)
     with patch.object(fresh_service, "_fetch_cbr_rates", new=AsyncMock(return_value=cbr)), \
+         patch.object(fresh_service, "_fetch_coingecko_rates", new=AsyncMock(return_value=None)), \
          patch.object(fresh_service, "_fetch_yahoo_rates", new=AsyncMock(return_value=None)):
         rates = await fresh_service._fetch_rates()
 
@@ -175,6 +184,7 @@ async def test_fetch_rates_prefers_yahoo_over_cbr(fresh_service):
     cbr = RatesService._parse_cbr_rates(CBR_RESPONSE)
     yahoo = {"USD": 1.0, "RUB": 81.5, "BTC": 1 / 100_000}
     with patch.object(fresh_service, "_fetch_cbr_rates", new=AsyncMock(return_value=cbr)), \
+         patch.object(fresh_service, "_fetch_coingecko_rates", new=AsyncMock(return_value=None)), \
          patch.object(fresh_service, "_fetch_yahoo_rates", new=AsyncMock(return_value=yahoo)):
         rates = await fresh_service._fetch_rates()
 
@@ -184,7 +194,96 @@ async def test_fetch_rates_prefers_yahoo_over_cbr(fresh_service):
 
 
 @pytest.mark.asyncio
-async def test_fetch_rates_returns_none_when_both_sources_fail(fresh_service):
+async def test_fetch_rates_returns_none_when_all_sources_fail(fresh_service):
     with patch.object(fresh_service, "_fetch_cbr_rates", new=AsyncMock(return_value=None)), \
+         patch.object(fresh_service, "_fetch_coingecko_rates", new=AsyncMock(return_value=None)), \
          patch.object(fresh_service, "_fetch_yahoo_rates", new=AsyncMock(return_value=None)):
         assert await fresh_service._fetch_rates() is None
+
+
+@pytest.mark.asyncio
+async def test_update_saves_cache_and_load_restores_it(fresh_service, tmp_path):
+    path = tmp_path / "rates_cache.json"
+    fresh_service.load_cache(str(path))  # No file yet: nothing changes
+
+    assert fresh_service.rates["RUB"] == 80.0
+
+    with patch.object(fresh_service, "_fetch_rates", new=AsyncMock(return_value={"USD": 1.0, "RUB": 81.0})):
+        await fresh_service.get_rates()
+
+    saved = json.loads(path.read_text())
+    assert saved["rates"]["RUB"] == 81.0
+    assert saved["updated_at"] == fresh_service.last_updated
+
+    # A restart starts from the saved rates
+    fresh_service.rates = {}
+    fresh_service.load_cache(str(path))
+    assert fresh_service.rates["RUB"] == 81.0
+
+
+def test_load_cache_ignores_broken_file(fresh_service, tmp_path):
+    path = tmp_path / "rates_cache.json"
+    path.write_text("{not json")
+
+    fresh_service.load_cache(str(path))
+
+    assert fresh_service.rates["RUB"] == 80.0
+
+
+@pytest.mark.asyncio
+async def test_get_rates_does_not_fetch_while_background_updates_run(fresh_service):
+    """Stale rates are served at once: the background task refreshes them."""
+    fresh_service._background_updates = True
+    with patch.object(fresh_service, "_fetch_rates", new=AsyncMock()) as mock_fetch:
+        rates = await fresh_service.get_rates()
+
+    assert rates["RUB"] == 80.0
+    mock_fetch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_rates_fetches_without_any_rates_even_with_background_updates(fresh_service):
+    fresh_service._background_updates = True
+    fresh_service.rates = {}
+    with patch.object(fresh_service, "_fetch_rates", new=AsyncMock(return_value={"USD": 1.0, "RUB": 81.0})):
+        rates = await fresh_service.get_rates()
+
+    assert rates["RUB"] == 81.0
+
+
+@pytest.mark.asyncio
+async def test_run_updates_survives_a_failed_update(fresh_service):
+    update = AsyncMock(side_effect=[RuntimeError("boom"), None])
+    sleep = AsyncMock(side_effect=[None, asyncio.CancelledError()])
+    with patch.object(fresh_service, "_update", new=update), \
+         patch("src.services.rates.asyncio.sleep", new=sleep):
+        with pytest.raises(asyncio.CancelledError):
+            await fresh_service.run_updates()
+
+    assert update.await_count == 2
+    sleep.assert_awaited_with(fresh_service.UPDATE_INTERVAL)
+    assert fresh_service._background_updates is False
+
+
+def test_parse_coingecko_rates():
+    rates = RatesService._parse_coingecko_rates({
+        "bitcoin": {"usd": 80_000},
+        "the-open-network": {"usd": 1.25},
+        "ethereum": {},  # Missing price is skipped
+    })
+
+    assert rates == {"BTC": 1 / 80_000, "TON": 0.8}
+
+
+@pytest.mark.asyncio
+async def test_fetch_rates_takes_crypto_from_coingecko_when_yahoo_fails(fresh_service):
+    """Regression: with Yahoo blocked there were no crypto rates at all."""
+    cbr = RatesService._parse_cbr_rates(CBR_RESPONSE)
+    crypto = {"BTC": 1 / 80_000, "TON": 0.8}
+    with patch.object(fresh_service, "_fetch_cbr_rates", new=AsyncMock(return_value=cbr)), \
+         patch.object(fresh_service, "_fetch_coingecko_rates", new=AsyncMock(return_value=crypto)), \
+         patch.object(fresh_service, "_fetch_yahoo_rates", new=AsyncMock(return_value=None)):
+        rates = await fresh_service._fetch_rates()
+
+    assert rates["BTC"] == 1 / 80_000
+    assert rates["RUB"] == 80.0

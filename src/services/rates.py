@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import os
 import time
 from typing import Any, Dict, Optional
 import aiohttp
@@ -12,12 +14,17 @@ class RatesService:
 
     # Cache configuration
     CACHE_TTL = 3600  # 1 hour
+    # Background updates keep the cache fresh, so replies never wait for the APIs
+    UPDATE_INTERVAL = 900  # 15 minutes
     # Short enough not to stall a reply when Yahoo is unreachable: CBR rates cover fiat then
     FETCH_TIMEOUT = 10  # seconds timeout for yfinance calls
 
     # Official Central Bank of Russia rates (JSON mirror of cbr.ru/scripts/XML_daily.asp)
     CBR_URL = "https://www.cbr-xml-daily.ru/daily_json.js"
-    CBR_TIMEOUT = 10  # seconds
+    # Crypto prices: one request for all coins, no API key
+    COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
+    COINGECKO_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "TON": "the-open-network", "USDT": "tether"}
+    HTTP_TIMEOUT = 10  # seconds, for CBR and CoinGecko
 
     def __new__(cls):
         if cls._instance is None:
@@ -28,42 +35,65 @@ class RatesService:
             cls._instance._last_attempt = 0.0
             cls._instance._lock = asyncio.Lock()
             cls._instance._consecutive_failures = 0
+            cls._instance._background_updates = False
+            cls._instance.cache_path = None
             # No API key needed for yfinance
 
         return cls._instance
 
     async def _fetch_rates(self) -> Optional[Dict[str, float]]:
         """
-        Fetches rates relative to USD from Yahoo Finance (market rates, crypto) and CBR.
-        Yahoo is often unreachable from Russian networks, so CBR rates fill in the fiat
-        currencies it fails to return.
+        Fetches rates relative to USD from Yahoo Finance (market rates, crypto),
+        CBR (fiat) and CoinGecko (crypto). Yahoo is often unreachable from Russian
+        networks, so the other two fill in the currencies it fails to return.
 
         Returns:
-            Dict of currency rates or None if neither source returned any
+            Dict of currency rates or None if no source returned any
         """
-        cbr_rates, yahoo_rates = await asyncio.gather(self._fetch_cbr_rates(), self._fetch_yahoo_rates())
+        cbr_rates, crypto_rates, yahoo_rates = await asyncio.gather(
+            self._fetch_cbr_rates(), self._fetch_coingecko_rates(), self._fetch_yahoo_rates()
+        )
 
-        new_rates = {**(cbr_rates or {}), **(yahoo_rates or {})}
+        new_rates = {**(cbr_rates or {}), **(crypto_rates or {}), **(yahoo_rates or {})}
         if len(new_rates) <= 1:  # Nothing but the USD base
             return None
 
         return new_rates
 
+    async def _get_json(self, url: str, params: Optional[Dict[str, str]] = None) -> Any:
+        timeout = aiohttp.ClientTimeout(total=self.HTTP_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, params=params) as response:
+                response.raise_for_status()
+                # CBR serves JSON as application/javascript
+                return await response.json(content_type=None)
+
     async def _fetch_cbr_rates(self) -> Optional[Dict[str, float]]:
         """Fetches official CBR rates. Returns None on failure."""
         try:
-            timeout = aiohttp.ClientTimeout(total=self.CBR_TIMEOUT)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(self.CBR_URL) as response:
-                    response.raise_for_status()
-                    # Served as application/javascript
-                    data = await response.json(content_type=None)
-
-            return self._parse_cbr_rates(data)
-
+            return self._parse_cbr_rates(await self._get_json(self.CBR_URL))
         except Exception as e:
             logger.error(f"Error fetching rates from CBR: {e}")
             return None
+
+    async def _fetch_coingecko_rates(self) -> Optional[Dict[str, float]]:
+        """Fetches crypto prices from CoinGecko. Returns None on failure."""
+        params = {"ids": ",".join(self.COINGECKO_IDS.values()), "vs_currencies": "usd"}
+        try:
+            return self._parse_coingecko_rates(await self._get_json(self.COINGECKO_URL, params)) or None
+        except Exception as e:
+            logger.error(f"Error fetching rates from CoinGecko: {e}")
+            return None
+
+    @classmethod
+    def _parse_coingecko_rates(cls, data: Dict[str, Any]) -> Dict[str, float]:
+        """Converts USD prices ({"bitcoin": {"usd": 80000}}) into coins per USD."""
+        rates = {}
+        for code, coin_id in cls.COINGECKO_IDS.items():
+            price = data.get(coin_id, {}).get("usd")
+            if price:
+                rates[code] = 1.0 / price
+        return rates
 
     @staticmethod
     def _parse_cbr_rates(data: Dict[str, Any]) -> Dict[str, float]:
@@ -101,6 +131,8 @@ class RatesService:
             "KZT": ("KZT=X", False),
             "TRY": ("TRY=X", False),
             "JPY": ("JPY=X", False),
+            # Not quoted by CBR: Yahoo and the disk cache are the only sources
+            "MXN": ("MXN=X", False),
 
             # Crypto
             "BTC": ("BTC-USD", True),
@@ -185,6 +217,64 @@ class RatesService:
 
         return not self.rates or (now - self.last_updated > self.CACHE_TTL)
 
+    async def _update(self) -> None:
+        """Fetches rates into the cache. The caller must hold the lock."""
+        now = time.time()
+        logger.info("Updating rates...")
+        new_rates = await self._fetch_rates()
+        self._last_attempt = now
+        if new_rates:
+            # Merge so currencies missing from a partial response keep their last known rate
+            self.rates = {**self.rates, **new_rates}
+            self.last_updated = now
+            self._consecutive_failures = 0
+            self._save_cache()
+        else:
+            self._consecutive_failures += 1
+            logger.warning("Using stale rates due to API failure.")
+
+    async def run_updates(self) -> None:
+        """Refreshes rates every UPDATE_INTERVAL until cancelled."""
+        self._background_updates = True
+        try:
+            while True:
+                try:
+                    async with self._lock:
+                        await self._update()
+                except Exception as e:
+                    logger.error(f"Background rates update failed: {e}", exc_info=True)
+
+                await asyncio.sleep(self.UPDATE_INTERVAL)
+        finally:
+            self._background_updates = False
+
+    def load_cache(self, path: str) -> None:
+        """Restores rates saved by a previous run and saves new ones to `path` from now on."""
+        self.cache_path = path
+        try:
+            with open(path, encoding="utf-8") as f:
+                cached = json.load(f)
+            self.rates = cached["rates"]
+            self.last_updated = cached["updated_at"]
+            logger.info(f"Loaded {len(self.rates)} cached rates from {path}")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to load cached rates from {path}: {e}")
+
+    def _save_cache(self) -> None:
+        if not self.cache_path:
+            return
+
+        try:
+            tmp_path = f"{self.cache_path}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump({"rates": self.rates, "updated_at": self.last_updated}, f)
+            # Atomic, so a crash mid-write never leaves a broken cache
+            os.replace(tmp_path, self.cache_path)
+        except Exception as e:
+            logger.warning(f"Failed to save rates to {self.cache_path}: {e}")
+
     async def get_rates(self) -> Dict[str, float]:
         """
         Returns rates, updating from API if cache is stale.
@@ -195,23 +285,16 @@ class RatesService:
         Returns:
             Dict of currency rates (may be stale if API is down)
         """
+        # Background updates refresh the cache: a reply waits only if there are no rates yet
+        if self._background_updates and self.rates:
+            return self.rates
+
         if self._needs_update(time.time()):
             # Use lock to prevent multiple concurrent API calls (cache stampede)
             async with self._lock:
                 # Double-check cache condition after acquiring lock
-                now = time.time()
-                if self._needs_update(now):
-                    logger.info("Updating rates from yfinance...")
-                    new_rates = await self._fetch_rates()
-                    self._last_attempt = now
-                    if new_rates:
-                        # Merge so currencies missing from a partial response keep their last known rate
-                        self.rates = {**self.rates, **new_rates}
-                        self.last_updated = now
-                        self._consecutive_failures = 0
-                    else:
-                        self._consecutive_failures += 1
-                        logger.warning("Using stale rates due to API failure.")
+                if self._needs_update(time.time()):
+                    await self._update()
 
         return self.rates
 

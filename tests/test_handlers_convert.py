@@ -38,3 +38,11 @@ async def test_convert_prices_large_amount_not_in_scientific_notation():
     result = await _convert([Price(350_000_000, "EUR")], ["EUR", "USD"], {"USD": 1.0, "EUR": 0.875})
 
     assert result == "🇪🇺 350000000 EUR\n  🇺🇸 400000000 USD"
+
+
+@pytest.mark.asyncio
+async def test_convert_prices_small_crypto_amount():
+    """Regression: 228 RUB -> BTC was shown as "0 BTC"."""
+    result = await _convert([Price(228, "RUB")], ["RUB", "BTC"], {"USD": 1.0, "RUB": 80.0, "BTC": 1 / 100_000})
+
+    assert result == "🇷🇺 228 RUB\n  ₿ 0.0000285 BTC"
