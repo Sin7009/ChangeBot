@@ -1,0 +1,7 @@
+[Unit]
+Description=Deploy ChangeBot from origin/master
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/ChangeBot-deploy/deploy/deploy.sh
