@@ -141,5 +141,19 @@ class TestRecognizer(unittest.TestCase):
         self.assertEqual(res[0].amount, 500.0)
         self.assertEqual(res[0].currency, "RUB")
 
+    def test_peso_is_mxn(self):
+        for text in ("400 песо", "за 1 миллион песо", "500 pesos", "10k MXN"):
+            res = recognize(text)
+            self.assertEqual(len(res), 1, text)
+            self.assertEqual(res[0].currency, "MXN", text)
+
+        self.assertEqual(recognize("400 песо")[0].amount, 400.0)
+        self.assertEqual(recognize("за 1 миллион песо")[0].amount, 1000000.0)
+
+    def test_no_false_positive_pesok(self):
+        # "песок" starts with "песо"
+        res = recognize("5 песок")
+        self.assertEqual(len(res), 0)
+
 if __name__ == '__main__':
     unittest.main()

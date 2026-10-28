@@ -10,6 +10,7 @@ CURRENCY_FLAGS = {
     "GBP": "🇬🇧",
     "CNY": "🇨🇳",
     "KZT": "🇰🇿",
+    "MXN": "🇲🇽",
     "BTC": "₿",
     "ETH": "Ξ",
     "TON": "💎",

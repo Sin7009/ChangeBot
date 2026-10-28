@@ -11,6 +11,7 @@ from src.database.engine import init_db, close_db
 from src.bot.handlers import main_router
 from src.bot.inline import inline_router
 from src.bot.middlewares import DbSessionMiddleware
+from src.services.rates import rates_service
 
 async def main():
     # Configure logging
@@ -22,6 +23,10 @@ async def main():
     # Initialize Database
     await init_db()
     logger.info("Database initialized.")
+
+    # Start from the last saved rates and keep them fresh in the background
+    rates_service.load_cache(settings.RATES_CACHE_PATH)
+    rates_task = asyncio.create_task(rates_service.run_updates())
 
     # Initialize Bot and Dispatcher
     bot = Bot(token=settings.BOT_TOKEN.get_secret_value())
@@ -42,6 +47,7 @@ async def main():
         await dp.start_polling(bot)
     finally:
         logger.info("Shutting down...")
+        rates_task.cancel()
         await close_db()
         await bot.session.close()
         logger.info("Shutdown complete.")

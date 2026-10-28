@@ -5,6 +5,7 @@ from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessag
 from src.services.recognizer import recognize
 from src.services.rates import rates_service
 from src.bot.keyboards import CURRENCY_FLAGS
+from src.bot.formatting import format_amount
 
 def get_flag(currency: str) -> str:
     return CURRENCY_FLAGS.get(currency, "💰")
@@ -42,12 +43,13 @@ async def inline_query_handler(inline_query: InlineQuery):
             if converted_amount == 0.0:
                 continue
 
-            formatted_val = f"{converted_amount:.2f}".rstrip("0").rstrip(".")
-
             src_flag = get_flag(price.currency)
             target_flag = get_flag(target)
 
-            result_text = f"{src_flag} {price.amount:g} {price.currency} ≈ {target_flag} {formatted_val} {target}"
+            result_text = (
+                f"{src_flag} {format_amount(price.amount)} {price.currency} ≈ "
+                f"{target_flag} {format_amount(converted_amount)} {target}"
+            )
 
             # Unique ID for the result
             result_id = hashlib.md5(result_text.encode()).hexdigest()
