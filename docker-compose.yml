@@ -1,3 +1,6 @@
+# Одно имя проекта для любой папки: автодеплой из ~/ChangeBot-deploy управляет теми же контейнерами
+name: changebot
+
 services:
   change_bot:
     build: .

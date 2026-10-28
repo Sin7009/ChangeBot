@@ -97,6 +97,22 @@
     ```
     Это соберет образ, установит зависимости (включая Tesseract OCR) и запустит бота.
 
+### Автодеплой на сервере
+
+На сервере бот выкатывается сам после каждого мержа в `master`. Таймер `changebot-deploy.timer` раз в минуту запускает [deploy/deploy.sh](deploy/deploy.sh). Если в `origin/master` есть невыкаченный коммит, скрипт переключает отдельный чекаут `~/ChangeBot-deploy` на этот коммит и выполняет `docker compose up -d --build`. Рабочую копию для разработки он не трогает, она может стоять на любой ветке.
+
+Установка:
+```bash
+git clone https://github.com/Sin7009/ChangeBot.git ~/ChangeBot-deploy
+# .env, data/ и paddlex_cache/ лежат в основной папке, в чекаут деплоя они попадают симлинками
+ln -s ~/ChangeBot/.env ~/ChangeBot/data ~/ChangeBot/paddlex_cache ~/ChangeBot-deploy/
+cp ~/ChangeBot-deploy/deploy/changebot-deploy.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now changebot-deploy.timer
+```
+
+Лог деплоев: `journalctl --user -u changebot-deploy`. Последний выкаченный коммит записан в `~/.local/state/changebot-deployed`. Если сборка упала, отметка не обновится, и следующий запуск таймера попробует снова.
+
 ### Локальный запуск (без Docker)
 
 **Внимание**: Для работы функции OCR необходимо установить Tesseract в вашу систему.
