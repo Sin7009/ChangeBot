@@ -150,6 +150,27 @@ class TestRecognizer(unittest.TestCase):
         self.assertEqual(recognize("400 песо")[0].amount, 400.0)
         self.assertEqual(recognize("за 1 миллион песо")[0].amount, 1000000.0)
 
+    def test_bare_multiplier_means_one(self):
+        cases = {
+            "человек за миллион песо да?": (1000000.0, "MXN"),
+            "за тысячу баксов": (1000.0, "USD"),
+            "тысяча евро": (1000.0, "EUR"),
+            "один миллион долларов": (1000000.0, "USD"),
+            "стоит миллиард рублей": (1000000000.0, "RUB"),
+            "1 миллион рублей": (1000000.0, "RUB"),
+        }
+        for text, (amount, currency) in cases.items():
+            res = recognize(text)
+            self.assertEqual(len(res), 1, text)
+            self.assertEqual(res[0].amount, amount, text)
+            self.assertEqual(res[0].currency, currency, text)
+
+    def test_bare_multiplier_needs_currency_and_no_number(self):
+        # Plural forms and compound numbers are not "one million"; "раз"/"тонн" are not currencies
+        for text in ("два миллиона долларов", "двадцать один миллион долларов",
+                     "в миллион раз лучше", "миллион тонн", "миллион"):
+            self.assertEqual(recognize(text), [], text)
+
     def test_no_false_positive_pesok(self):
         # "песок" starts with "песо"
         res = recognize("5 песок")
