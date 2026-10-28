@@ -131,6 +131,8 @@ class RatesService:
             "KZT": ("KZT=X", False),
             "TRY": ("TRY=X", False),
             "JPY": ("JPY=X", False),
+            # Not quoted by CBR: Yahoo and the disk cache are the only sources
+            "MXN": ("MXN=X", False),
 
             # Crypto
             "BTC": ("BTC-USD", True),
