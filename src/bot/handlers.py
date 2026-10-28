@@ -15,6 +15,7 @@ from src.services.charts import generate_chart
 from src.services.ocr import image_to_text
 from src.database.dal import get_chat_settings, toggle_currency, get_target_currencies
 from src.bot.keyboards import settings_keyboard, CURRENCY_FLAGS
+from src.bot.formatting import format_amount
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,6 @@ main_router = Router()
 
 def get_flag(currency: str) -> str:
     return CURRENCY_FLAGS.get(currency, "💰")
-
-def format_amount(amount: float) -> str:
-    # Fixed-point, not :g, which turns large amounts into "3.5e+08"
-    return f"{amount:.2f}".rstrip("0").rstrip(".")
 
 async def convert_prices(prices: List[Price], session: AsyncSession, chat_id: int) -> Optional[str]:
     """
@@ -249,6 +246,24 @@ async def handle_photo(message: Message, session: AsyncSession):
         return
 
     is_private = message.chat.type == "private"
+    
+    # In groups/supergroups, only process if the bot is mentioned in caption or it's a reply to the bot
+    if not is_private:
+        bot_info = await message.bot.get_me()
+        
+        is_mentioned = False
+        if message.caption:
+            caption_lower = message.caption.lower()
+            if f"@{bot_info.username.lower()}" in caption_lower:
+                is_mentioned = True
+                
+        is_reply_to_bot = False
+        if message.reply_to_message and message.reply_to_message.from_user:
+            is_reply_to_bot = message.reply_to_message.from_user.id == bot_info.id
+            
+        if not is_mentioned and not is_reply_to_bot:
+            return
+
     status_msg = None
 
     if is_private:
@@ -283,11 +298,10 @@ async def handle_photo(message: Message, session: AsyncSession):
         # This saves memory (approx 1x image size) and CPU.
         file_io.seek(0)
 
-        # Run OCR in executor with timeout
-        loop = asyncio.get_running_loop()
+        # Run OCR with timeout
         try:
             text = await asyncio.wait_for(
-                loop.run_in_executor(None, image_to_text, file_io),
+                image_to_text(file_io),
                 timeout=30.0
             )
         except asyncio.TimeoutError:
@@ -321,7 +335,12 @@ async def handle_photo(message: Message, session: AsyncSession):
                 await message.reply(response)
         else:
             if is_private and status_msg:
-                await status_msg.edit_text("Валюты найдены, но не выбраны целевые валюты в настройках.")
+                target_currencies = await get_target_currencies(session, message.chat.id)
+                source_currencies = {price.currency for price in prices}
+                if any(code not in source_currencies for code in target_currencies):
+                    await status_msg.edit_text("Валюты найдены, но курсы сейчас недоступны. Попробуйте позже.")
+                else:
+                    await status_msg.edit_text("Валюты найдены, но не выбраны целевые валюты в настройках.")
 
     except Exception as e:
         logger.error(f"Error handling photo: {e}", exc_info=True)

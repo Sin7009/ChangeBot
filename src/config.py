@@ -7,6 +7,8 @@ class Settings(BaseSettings):
 
     # Optional: database path for sqlite
     DB_PATH: str = "bot_database.sqlite3"
+    # Last fetched rates, so the bot does not start without rates after a restart
+    RATES_CACHE_PATH: str = "rates_cache.json"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

@@ -111,5 +111,49 @@ class TestRecognizer(unittest.TestCase):
         # Should find nothing as neither "ГБ" nor "RTX" are valid currencies
         self.assertEqual(len(res), 0)
 
+    def test_price_tag_hyphen_format(self):
+        # "400-00" -> 400.00 RUB (even in strict mode)
+        res = recognize("400-00", strict_mode=True)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].amount, 400.0)
+        self.assertEqual(res[0].currency, "RUB")
+        
+        # "price 250-99 руб" -> 250.99 RUB
+        res = recognize("price 250-99 руб", strict_mode=True)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].amount, 250.99)
+        self.assertEqual(res[0].currency, "RUB")
+        
+        # Phone numbers should NOT be matched
+        res = recognize("123-45-67", strict_mode=True)
+        self.assertEqual(len(res), 0)
+
+    def test_stacked_vertical_price(self):
+        # 299 \n 95 \n py6. -> 299.95 RUB
+        res = recognize("299\n95\npy6.", strict_mode=True)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].amount, 299.95)
+        self.assertEqual(res[0].currency, "RUB")
+
+        # 500 \n руб. -> 500.0 RUB
+        res = recognize("500\nруб.", strict_mode=True)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].amount, 500.0)
+        self.assertEqual(res[0].currency, "RUB")
+
+    def test_peso_is_mxn(self):
+        for text in ("400 песо", "за 1 миллион песо", "500 pesos", "10k MXN"):
+            res = recognize(text)
+            self.assertEqual(len(res), 1, text)
+            self.assertEqual(res[0].currency, "MXN", text)
+
+        self.assertEqual(recognize("400 песо")[0].amount, 400.0)
+        self.assertEqual(recognize("за 1 миллион песо")[0].amount, 1000000.0)
+
+    def test_no_false_positive_pesok(self):
+        # "песок" starts with "песо"
+        res = recognize("5 песок")
+        self.assertEqual(len(res), 0)
+
 if __name__ == '__main__':
     unittest.main()

@@ -149,3 +149,10 @@ dmypy.json
 
 /temp/
 /config/
+
+# PaddleOCR model cache (ocr-service volume)
+paddlex_cache/
+
+# Bot database (docker volume)
+data/
+rates_cache.json*

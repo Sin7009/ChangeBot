@@ -7,9 +7,37 @@ services:
     # Передаем секреты внутрь контейнера
     env_file:
       - .env
+    # База на хосте, иначе она пропадает при каждом пересоздании контейнера
+    environment:
+      - DB_PATH=/app/data/bot_database.sqlite3
+      - RATES_CACHE_PATH=/app/data/rates_cache.json
+    volumes:
+      - ./data:/app/data
     # Ограничиваем ресурсы, чтобы бот не съел всю память сервера (для твоей Free Tier VM)
     deploy:
       resources:
         limits:
           cpus: '0.50'
           memory: 512M
+    depends_on:
+      - ocr-service
+
+  ocr-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.ocr
+    container_name: ocr-service
+    restart: always
+    shm_size: '8gb'
+    volumes:
+      - ./paddlex_cache:/root/.paddlex
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+        limits:
+          cpus: '2.0'
+          memory: 4G

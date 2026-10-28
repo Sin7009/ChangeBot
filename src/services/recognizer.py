@@ -62,7 +62,7 @@ class CurrencyRecognizer:
     # Valid currency codes - whitelist to prevent false positives
     VALID_CURRENCIES = {
         # Fiat currencies
-        "USD", "EUR", "RUB", "GBP", "CNY", "KZT", "TRY", "JPY",
+        "USD", "EUR", "RUB", "GBP", "CNY", "KZT", "TRY", "JPY", "MXN",
         # Crypto
         "BTC", "ETH", "TON", "USDT"
     }
@@ -81,6 +81,7 @@ class CurrencyRecognizer:
         
         # RUB
         "руб": "RUB", "рубль": "RUB", "рублей": "RUB", "р": "RUB", "ruble": "RUB", "₽": "RUB",
+        "py6": "RUB", "pyб": "RUB", "pуб": "RUB", "pyb": "RUB",
         
         # GBP
         "фунт": "GBP", "pound": "GBP", "£": "GBP", "фунтов": "GBP", "фунта": "GBP",
@@ -90,12 +91,28 @@ class CurrencyRecognizer:
         
         # CNY
         "юань": "CNY", "юаней": "CNY", "юаня": "CNY", "cny": "CNY", "¥": "CNY",
-        
+
+        # MXN: the most traded peso, so a bare "песо" means the Mexican one
+        "песо": "MXN", "peso": "MXN", "pesos": "MXN",
+
         # Crypto
         "биток": "BTC", "битка": "BTC", "битков": "BTC", "btc": "BTC", "bitcoin": "BTC", "₿": "BTC",
         "эфир": "ETH", "эфира": "ETH", "эфиров": "ETH", "eth": "ETH", "ethereum": "ETH",
         "ton": "TON", "тон": "TON",
         "usdt": "USDT", "tether": "USDT"
+    }
+
+    # Longer digit lines on price tags are barcodes or article numbers, not prices
+    MAX_PRICE_TAG_DIGITS = 7
+
+    CANONICAL_SYMBOLS: Dict[str, str] = {
+        "RUB": "₽",
+        "USD": "$",
+        "EUR": "€",
+        "GBP": "£",
+        "CNY": "¥",
+        "KZT": "₸",
+        "BTC": "₿"
     }
 
     # OPTIMIZATION: Pre-populate SLANG_MAP with valid currencies (lowercase) to avoid
@@ -154,14 +171,14 @@ class CurrencyRecognizer:
     # Group 2: Multiplier (optional)
     # Group 3: Currency
     # Pattern: either space-separated (\d{1,3}(?:\s+\d{3})+) or regular (\d+), with optional decimal
-    _AMOUNT_REGEX = r'(?:\d{1,3}(?:\s+\d{3})+|\d+)(?:[.,]\d+)?'
+    _AMOUNT_REGEX = r'(?:\d{1,3}(?:[ \t]+\d{3})+|\d+)(?:[.,]\d+)?'
     PATTERN_START = re.compile(
-        rf'({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX})'
+        rf'({_AMOUNT_REGEX})[ \t]*({MULTIPLIER_REGEX})?[ \t]*({_CURRENCY_TOKEN_REGEX})'
     )
     
     # Currency Number [multiplier]
     PATTERN_END = re.compile(
-        rf'({_CURRENCY_TOKEN_REGEX})\s*({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?'
+        rf'({_CURRENCY_TOKEN_REGEX})[ \t]*({_AMOUNT_REGEX})[ \t]*({MULTIPLIER_REGEX})?'
     )
 
     SLANG_AMOUNT_CURRENCY = {
@@ -180,7 +197,7 @@ class CurrencyRecognizer:
     # Matches words from SLANG_AMOUNT_CURRENCY if not preceded by a digit
     # Note: We wrap the trie regex in a capturing group to match group(1) behavior
     STANDALONE_SLANG_PATTERN = re.compile(
-        rf'(?<!\d)\s*(?<!\d\s)({_SLANG_REGEX})\b'
+        rf'(?<!\d)[ \t]*(?<!\d[ \t])({_SLANG_REGEX})\b'
     )
 
     # OPTIMIZATION: Combined regex for single-pass scanning
@@ -190,9 +207,9 @@ class CurrencyRecognizer:
     # 4,5,6: End Pattern (Currency, Amount, Multiplier)
     # 7: Standalone Slang
     COMBINED_PATTERN = re.compile(
-        rf'(?:({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?\s*({_CURRENCY_TOKEN_REGEX}))|'
-        rf'(?:({_CURRENCY_TOKEN_REGEX})\s*({_AMOUNT_REGEX})\s*({MULTIPLIER_REGEX})?)|'
-        rf'(?:(?<!\d)\s*(?<!\d\s)({_SLANG_REGEX})\b)'
+        rf'(?:({_AMOUNT_REGEX})[ \t]*({MULTIPLIER_REGEX})?[ \t]*({_CURRENCY_TOKEN_REGEX}))|'
+        rf'(?:({_CURRENCY_TOKEN_REGEX})[ \t]*({_AMOUNT_REGEX})[ \t]*({MULTIPLIER_REGEX})?)|'
+        rf'(?:(?<!\d)[ \t]*(?<!\d[ \t])({_SLANG_REGEX})\b)'
     )
 
     # OPTIMIZATION: Precompiled pattern for fast digit checking.
@@ -292,6 +309,35 @@ class CurrencyRecognizer:
 
         return f"{start} {multiplier} {currency} ; {end} {multiplier} {currency}"
 
+    @staticmethod
+    def _merge_stacked_amounts(numbers: List[str]) -> List[str]:
+        """["299", "95", "500"] -> ["299.95", "500"]: a 2-digit line after an amount is its kopecks."""
+        amounts = []
+        i = 0
+        while i < len(numbers):
+            if i + 1 < len(numbers) and len(numbers[i + 1]) == 2:
+                amounts.append(f"{numbers[i]}.{numbers[i + 1]}")
+                i += 2
+                continue
+
+            # A lone short number is not a price: "2", "$" may be unrelated lines
+            if len(numbers[i]) >= 3:
+                amounts.append(numbers[i])
+            i += 1
+
+        return amounts
+
+    @classmethod
+    def _get_canonical_symbol(cls, token: str) -> str | None:
+        """Gets the canonical symbol (e.g. '₽') for a recognized currency token."""
+        t = token.lower().strip().rstrip('.')
+        currency_code = cls.SLANG_MAP.get(t)
+        if currency_code:
+            return cls.CANONICAL_SYMBOLS.get(currency_code)
+        if t in cls.SYMBOLS:
+            return t
+        return None
+
     @classmethod
     def parse(cls, text: str, strict_mode: bool = False) -> List[Price]:
         """
@@ -307,9 +353,36 @@ class CurrencyRecognizer:
         """
         results = []
 
-        # Stop words removal was removed as it was redundant and caused false positives
-        # (e.g. "100 gb usd" -> "100 usd"). The whitelist regex handles non-currency words correctly.
-        text_cleaned = text.lower()
+        # Split text into lines, strip and clean them
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        
+        # Merge stacked vertical prices from price tags: OCR returns rubles, kopecks and
+        # currency as separate lines, often for both the old and the new price
+        # (e.g. "299", "95", "500", "руб.", "руб." -> "299.95 ₽", "500 ₽")
+        i = 0
+        merged_lines = []
+        while i < len(lines):
+            numbers_end = i
+            while (numbers_end < len(lines) and lines[numbers_end].isdigit()
+                   and len(lines[numbers_end]) <= cls.MAX_PRICE_TAG_DIGITS):
+                numbers_end += 1
+
+            currencies_end = numbers_end
+            while currencies_end < len(lines) and cls._get_canonical_symbol(lines[currencies_end]):
+                currencies_end += 1
+
+            if numbers_end > i and currencies_end > numbers_end:
+                amounts = cls._merge_stacked_amounts(lines[i:numbers_end])
+                if amounts:
+                    symbol = cls._get_canonical_symbol(lines[numbers_end])
+                    merged_lines.extend(f"{amount} {symbol}" for amount in amounts)
+                    i = currencies_end
+                    continue
+
+            merged_lines.append(lines[i])
+            i += 1
+                
+        text_cleaned = "\n".join(merged_lines).lower()
 
         text_cleaned = cls.ABBREVIATED_MULTIPLIER_PATTERN.sub(r'\1', text_cleaned)
 
@@ -318,6 +391,10 @@ class CurrencyRecognizer:
         # other hyphen handling, so "10-15 тыс руб" stays a range.
         text_cleaned = cls.RANGE_PREFIX_PATTERN.sub(cls._expand_prefix_range, text_cleaned)
         text_cleaned = cls.RANGE_SUFFIX_PATTERN.sub(cls._expand_suffix_range, text_cleaned)
+
+        # Preprocess price tag hyphen format (e.g. "400-00" -> "400.00 ₽")
+        # This is a very common price format in Russian retail.
+        text_cleaned = re.sub(r'(?<![\d-])\b(\d+)-(\d{2})\b(?![\d-])', r'\1.\2 ₽', text_cleaned)
 
         # OPTIMIZATION: "Fast Path" for text without digits.
         # The COMBINED_PATTERN requires at least one digit (for amount) in its first two major parts.
