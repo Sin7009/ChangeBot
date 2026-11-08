@@ -204,3 +204,17 @@ def test_does_not_parse_separated_by_newlines_with_words():
     text = "some text 2\n$ some other text"
     res = recognize(text, strict_mode=True)
     assert len(res) == 0
+
+
+def test_repeated_amount_is_reported_once():
+    """Regression: a channel post with "$100 тысяч" in the title and the body got two identical blocks."""
+    text = (
+        "В США $100 тысяч в год уже не гарантируют даже среднего класса\n\n"
+        "годовой доход в размере $100 тысяч (около 680 тысяч рублей в месяц)"
+    )
+    res = [(p.amount, p.currency) for p in recognize(text)]
+    assert res == [(100_000, "USD"), (680_000, "RUB")]
+
+
+def test_repeated_slang_is_reported_once():
+    assert [(p.amount, p.currency) for p in recognize("косарь и ещё косарь")] == [(1000, "RUB")]
