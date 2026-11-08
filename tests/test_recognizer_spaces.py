@@ -90,12 +90,12 @@ class TestRecognizerSpaces(unittest.TestCase):
         - 5 000 рублей юридические расходы
         """
         res = recognize(text)
-        # Should find: 1 млн, 364 000, 364 000, 374 000, 20 000, 5 000
-        self.assertGreaterEqual(len(res), 6)
-        
+        # Should find: 1 млн, 364 000, 374 000, 20 000, 5 000
+        self.assertGreaterEqual(len(res), 5)
+
         amounts = [r.amount for r in res]
         self.assertIn(1000000.0, amounts)  # 1 млн
-        self.assertEqual(amounts.count(364000.0), 2)  # 364 000 x2
+        self.assertEqual(amounts.count(364000.0), 1)  # 364 000 twice, converted once
         self.assertIn(374000.0, amounts)  # 374 000
         self.assertIn(20000.0, amounts)  # 20 000
         self.assertIn(5000.0, amounts)  # 5 000

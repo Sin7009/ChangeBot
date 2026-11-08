@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Set
 
 
-@dataclass
+@dataclass(frozen=True)
 class Price:
     amount: float
     currency: str
@@ -437,7 +437,7 @@ class CurrencyRecognizer:
                  if word in cls.SLANG_AMOUNT_CURRENCY:
                      val, curr = cls.SLANG_AMOUNT_CURRENCY[word]
                      results.append(Price(amount=val, currency=curr))
-            return results
+            return cls._unique(results)
 
         # Optimization: Single pass using combined regex
         for match in cls.COMBINED_PATTERN.finditer(text_cleaned):
@@ -526,7 +526,12 @@ class CurrencyRecognizer:
             if inferred:
                 results.append(inferred)
 
-        return results
+        return cls._unique(results)
+
+    @staticmethod
+    def _unique(prices: List[Price]) -> List[Price]:
+        """Drops repeats: a post that says "$100 тысяч" in the title and the body gets one reply."""
+        return list(dict.fromkeys(prices))
 
     @classmethod
     def _infer_transfer_amount_without_currency(cls, text_cleaned: str) -> Price | None:
